@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<thing:thing-descriptions bindingId="deconz"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns:thing="http://eclipse.org/smarthome/schemas/thing-description/v1.0.0"
+        xsi:schemaLocation="http://eclipse.org/smarthome/schemas/thing-description/v1.0.0 http://eclipse.org/smarthome/schemas/thing-description-1.0.0.xsd">
+
+    <thing-type id="deCONZSwitch">
+        <supported-bridge-type-refs>
+            <bridge-type-ref id="deCONZBridge" />
+        </supported-bridge-type-refs>
+        
+        <label>ZLL On/Off Switch</label>
+        <description>A ZLL device that can switch things on or off.</description>
+
+        <channels>
+            <channel id="deconzOnOff" typeId="deconzOnOff" />
+        </channels>
+
+  	    <config-description>
+			<parameter name="deconzSensorID" type="text" readOnly="true">
+		    	<label>Switch identifier</label>
+            	<description>The switch identifier identifies a specific switch.</description>
+            	<required>true</required>
+			</parameter>
+			<parameter name="UniqueId" type="text" readOnly="true">
+ 				<label>Unique device id</label>
+ 				<description>The unique id of the device which should be visible at the device as well. This value is read from the device if it is available.</description>
+ 				<required>false</required>
+ 			</parameter>
+			<parameter name="Manufacturer" type="text" readOnly="true">
+ 				<label>Manufacturer</label>
+ 				<description>Name of the manufacturer of the device. This value is read from the device if it is available.</description>
+ 				<required>false</required>
+ 			</parameter>
+			<parameter name="Model" type="text" readOnly="true">
+ 				<label>Model name</label>
+ 				<description>Name of the model as given by the manufacturer. This value is read from the device if it is available.</description>
+ 				<required>false</required>
+ 			</parameter>
+			<parameter name="SoftwareVersion" type="text" readOnly="true">
+ 				<label>Device firmware version</label>
+ 				<description>The firmware version of the device.</description>
+ 				<required>false</required>
+ 			</parameter>
+	    </config-description>        
+    </thing-type>
+</thing:thing-descriptions>

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<thing:thing-descriptions bindingId="deconz"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:thing="http://eclipse.org/smarthome/schemas/thing-description/v1.0.0"
+    xsi:schemaLocation="http://eclipse.org/smarthome/schemas/thing-description/v1.0.0 http://eclipse.org/smarthome/schemas/thing-description-1.0.0.xsd">
+
+    <!-- deCONZ Bridge -->
+    <bridge-type id="deCONZBridge">
+        <label>deCONZ Bridge</label>
+        <description>The deCONZ bridge represents the connection to one device where a deCONZ instance is running. This can be a PC or an embedded Linux device like a Raspberry Pi.</description>
+
+        <properties>
+        	<property name="vendor">dresden elektronik ingenieurtechnik gmbh</property>
+        </properties>
+
+        <config-description>
+            <parameter name="BridgeLocation" type="text">
+                <context>network_address</context>
+		    	<label>Bridge Location</label>
+		    	<description>The URL or IP address of the bridge including the access protocol. 
+		    		Protocols can be either http:// or https:// (e.g. http://192.168.192.1)</description>
+		    	<default>http://192.168.192.1</default>
+                <required>true</required>
+            </parameter>
+			<parameter name="ApiKey" type="text">
+ 				<label>API key</label>
+ 				<description>The current key used to identify with the deCONZ instance.</description>
+ 				<required>false</required>
+ 			</parameter>
+            <parameter name="Username" type="text">
+                <label>Username</label>
+		    	<description>Name of a user registered at deCONZ that allows to authenticate with 
+		    		the deCONZ bridge to access the API.</description>
+                <required>false</required>
+            </parameter>
+            <parameter name="Password" type="text">
+                <context>password</context>
+                <label>Password</label>
+                <required>false</required>
+            </parameter>
+			<parameter name="UniqueId" type="text" readOnly="true">
+ 				<label>Unique device id</label>
+ 				<description>The unique id of the device which should be visible at the device as well. This value is read from the device if it is available.</description>
+ 				<required>false</required>
+ 			</parameter>
+			<parameter name="Manufacturer" type="text" readOnly="true">
+ 				<label>Manufacturer</label>
+ 				<description>Name of the manufacturer of the bridge. This value is read from the bridge if it is available.</description>
+ 				<required>false</required>
+ 			</parameter>
+			<parameter name="Model" type="text" readOnly="true">
+ 				<label>Model name</label>
+ 				<description>Name of the model as given by the manufacturer. This value is read from the bridge if it is available.</description>
+ 				<required>false</required>
+ 			</parameter>
+			<parameter name="SoftwareVersion" type="text" readOnly="true">
+ 				<label>Bridge software version</label>
+ 				<description>The software version of the deCONZ software running at the bridge.</description>
+ 				<required>false</required>
+ 			</parameter>
+        </config-description>
+    </bridge-type>
+</thing:thing-descriptions>

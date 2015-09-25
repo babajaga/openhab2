@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<thing:thing-descriptions bindingId="deconz"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:thing="http://eclipse.org/smarthome/schemas/thing-description/v1.0.0"
+    xsi:schemaLocation="http://eclipse.org/smarthome/schemas/thing-description/v1.0.0 http://eclipse.org/smarthome/schemas/thing-description-1.0.0.xsd">
+
+    <!-- Color Channel -->
+    <channel-type id="deconzColor">
+        <item-type>Color</item-type>
+        <label>Color</label>
+        <description>The color channel allows to control the color of a light.
+            It is also possible to dim values and switch the light on and off.
+        </description>
+        <category>ColorLight</category>
+    </channel-type>
+
+    <!-- Brightness Channel -->
+    <channel-type id="deconzBrightness">
+        <item-type>Dimmer</item-type>
+        <label>Brightness</label>
+        <description>The brightness channel allows to control the brightness of a device.
+            It is also possible to switch the device on and off.
+        </description>
+        <category>Dimmer</category>
+    </channel-type>
+
+    <!-- Color Temperature Channel -->
+    <channel-type id="deconzColorTemperature">
+        <item-type>Dimmer</item-type>
+        <label>Color Temperature</label>
+        <description>The color temperature channel allows to set the color
+            temperature of a light from 0 (cold) to 100 (warm).</description>
+        <category>ColorLight</category>
+    </channel-type>
+
+    <!-- On/Off Channel -->
+    <channel-type id="deconzOnOff">
+        <item-type>Switch</item-type>
+        <label>State</label>
+        <description>The On/Off channel allows to switch the device on or off.</description>
+        <category>Switch</category>
+    </channel-type>
+
+</thing:thing-descriptions>

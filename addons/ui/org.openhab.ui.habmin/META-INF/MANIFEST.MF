@@ -1,0 +1,24 @@
+Manifest-Version: 1.0
+Service-Component: OSGI-INF/*
+Private-Package: org.openhab.ui.habmin.internal
+Ignore-Package: org.openhab.ui.habmin.internal
+Bundle-ClassPath: ., lib/xstream-1.4.6.jar
+Bundle-Name: HABmin User Interface
+Bundle-RequiredExecutionEnvironment: JavaSE-1.7
+Require-Bundle: javax.servlet
+Bundle-Vendor: openHAB.org
+Bundle-Version: 2.0.0.201506192315
+Bundle-ManifestVersion: 2
+Bundle-License: http://www.eclipse.org/legal/epl-v10.html
+Import-Package: javax.servlet,javax.servlet.http,javax.ws.rs,javax.ws.
+ rs.core,org.apache.commons.io;version="2.2.0",org.apache.commons.lang
+ ;version="2.6.0",org.eclipse.emf.common.util,org.eclipse.emf.ecore,or
+ g.eclipse.smarthome.core.items,org.eclipse.smarthome.core.library.typ
+ es,org.eclipse.smarthome.core.persistence,org.eclipse.smarthome.core.
+ types,org.eclipse.smarthome.io.rest,org.eclipse.smarthome.model.core,
+ org.eclipse.smarthome.model.items,org.eclipse.smarthome.model.sitemap
+ ,org.eclipse.smarthome.ui.items,org.openhab.binding.zwave.internal.co
+ nfig,org.openhab.ui.dashboard,org.osgi.service.component,org.osgi.ser
+ vice.http,org.slf4j
+Bundle-SymbolicName: org.openhab.ui.habmin;singleton:=true
+
