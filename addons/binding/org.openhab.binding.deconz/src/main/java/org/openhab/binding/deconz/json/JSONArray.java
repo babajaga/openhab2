@@ -1,4 +1,4 @@
-package org.openhab.binding.deconz.rest;
+package org.openhab.binding.deconz.json;
 
 /*
  Copyright (c) 2002 JSON.org

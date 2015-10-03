@@ -10,23 +10,23 @@ import java.util.Map;
 import java.util.Set;
 import java.util.Map.Entry;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 
 import org.eclipse.smarthome.config.core.Configuration;
+import org.eclipse.smarthome.core.thing.Bridge;
 import org.eclipse.smarthome.core.thing.ChannelUID;
 import org.eclipse.smarthome.core.thing.Thing;
 import org.eclipse.smarthome.core.thing.ThingStatus;
 import org.eclipse.smarthome.core.thing.ThingStatusDetail;
 import org.eclipse.smarthome.core.thing.ThingTypeUID;
 import org.eclipse.smarthome.core.thing.binding.BaseThingHandler;
+import org.eclipse.smarthome.core.thing.binding.ThingHandler;
 import org.eclipse.smarthome.core.types.Command;
-import org.openhab.binding.deconz.internal.deCONZConfiguration;
-import org.openhab.binding.deconz.rest.DeconzRestService;
-import org.openhab.binding.deconz.rest.RestReader;
-import org.openhab.binding.deconz.rest.RestReader.RestBridgeReader;
-import org.openhab.binding.deconz.rest.RestReader.RestLightReader;
-import org.openhab.binding.deconz.rest.RestReader.RestSensorReader;
+import org.openhab.binding.deconz.rest.bridge.deCONZRestBridgeService;
+import org.openhab.binding.deconz.rest.bridge.deCONZRestReader;
+import org.openhab.binding.deconz.rest.smarthome.RestSmarthomeService;
+import org.openhab.binding.deconz.rest.smarthome.RestSmarthomeReader;
+import org.openhab.binding.deconz.internal.deCONZDiscoveryService;
+import org.openhab.binding.deconz.internal.deCONZEventPublisher;
 import org.openhab.binding.deconz.rest.RestResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,40 +37,22 @@ import org.slf4j.LoggerFactory;
  * 
  * @author Mike Ludwig - Initial contribution
  */
-public class deCONZBridgeHandler extends BaseThingHandler implements RestBridgeReader, 
-	RestLightReader, RestSensorReader {
+public class deCONZBridgeHandler extends BaseThingHandler implements deCONZRestReader.RestBridgeReader, 
+	deCONZRestReader.RestDeviceReader, RestSmarthomeReader.RestBridgeReader {
 
     public final static Set<ThingTypeUID> SUPPORTED_THING_TYPES = Collections.singleton(THING_TYPE_BRIDGE);
 
-    private final static int STATE_INIT = 1;
-	private final static int STATE_READ_CONFIGURATION = 2;
-	private final static int STATE_BASIC_AUTHENTICATE = 3;
-	private final static int STATE_UNLOCK_AUTHENTICATE = 4;
-	private final static int STATE_READ_DEVICES= 5;
-	private final static int STATE_UPDATE = 6;
-	
     private Logger logger = LoggerFactory.getLogger(deCONZBridgeHandler.class);
     
-    private deCONZConfiguration configuration = new deCONZConfiguration();
-    private ScheduledFuture<?> job = null;
-    private DeconzRestService rest = new DeconzRestService();
-    private int state = STATE_INIT;
-    private int stateCount = 0;
-    private Map<String, deCONZLight> lights = new HashMap<>();
-    private Map<String, deCONZLight> lightsBackup = new HashMap<>();
-    private List<deCONZLightStatusListener> lightStatusListeners = new CopyOnWriteArrayList<>();
-    private Map<String, deCONZSensor> sensors = new HashMap<>();
-    private Map<String, deCONZSensor> sensorsBackup = new HashMap<>();
-    private List<deCONZSensorStatusListener> sensorStatusListeners = new CopyOnWriteArrayList<>();
-    private RestReader reader = null;
+    private deCONZRestBridgeService bridge = new deCONZRestBridgeService();
+    private RestSmarthomeService smarthome = new RestSmarthomeService();
+    private Map<String, deCONZDevice> devices = new HashMap<>();
+    private Map<String, deCONZDevice> devicesBackup = null;
+    private List<deCONZDeviceStatusListener> statusListeners = new CopyOnWriteArrayList<>();
+    private deCONZDiscoveryService discovery = null;
+    @SuppressWarnings("unused")
+	private deCONZEventPublisher publisher = new deCONZEventPublisher();
     
-	@SuppressWarnings("unused")
-	private String bridgeName = null;
-	@SuppressWarnings("unused")
-	private String bridgeMac = null;
-	@SuppressWarnings("unused")
-	private String bridgeVersion = null;
-
 	public deCONZBridgeHandler(Thing thing) {
 		super(thing);
 	}
@@ -81,60 +63,40 @@ public class deCONZBridgeHandler extends BaseThingHandler implements RestBridgeR
         super.initialize();
         Configuration config = getThing().getConfiguration();
 
-        // If the current state is STATE_INIT we want to apply the new configuration. A init could be due to
-        // connection problems, authentication problems. In this case we would just sit and wait until the 
-        // counter expires. Just set the counter to try this new configuration right away.
-        // If the current state is not STATE_INIT we want to use the new configuration, that is, need to
-        // switch to init.
-        if (state == STATE_INIT) {
-        	stateCount = 0;
+        // We want to apply the new configuration to the rest service. If it has not yet gone further that initialized, 
+        // it could have connection or authentication problems. In this case we would just sit and wait until the service 
+        // runs tries again. So instead of waiting, we restart the service and try this new configuration right away.
+        if (bridge.isInitialized()) {
+        	bridge.restart();
         } else {
-        	// This is bad. If the URL of the bridge got changed we do loose all lights as well, as we
-        	// are actually a different bridge. This although means we should remove all our devices but
-        	// on the other hand - should we really do this? Currently we leave the devices with the
-        	// platform what means we have to clear our internal caches. Otherwise the devices would
-        	// be considered 'removed' if we read the new bridge devices and hence removed from the 
-        	// platform.
+        	// This is bad. We already have discovered things and the URL of the bridge got changed. As this is a 
+        	// different bridge we do loose all devices as well. This although means we should remove all our devices but
+        	// on the other hand - should we really do this? Currently we leave the devices with the platform what means 
+        	// we only have to clear our internal caches. Otherwise the devices would be considered 'removed' if we read 
+        	// the new bridge devices and hence removed from the platform.
             String s = (String) config.get(DECONZ_BRIDGE_LOCATION);
-            if ((s != null) && (configuration.getInstance() != null) && (s.compareTo(configuration.getInstance()) != 0)) {
-	        	lights.clear();
-	        	sensors.clear();
-	        	state = STATE_INIT;
-	        	stateCount = 0;
+            if ((s != null) && (bridge.getBaseURL() != null) && (s.compareTo(bridge.getBaseURL()) != 0)) {
+	        	devices.clear();
+	        	bridge.restart();
             }
         }
                 
-        try {
-            configuration.setInstance((String) config.get(DECONZ_BRIDGE_LOCATION));
-        } catch (Exception e) {
-            // ignore the exception
-        }
-
-        try {
-            configuration.setUserName((String) config.get(DECONZ_BRIDGE_USERNAME));
-        } catch (Exception e) {
-            // ignore the exception
-        }
-
-        try {
-            configuration.setPassword((String) config.get(DECONZ_BRIDGE_PASSWORD));
-        } catch (Exception e) {
-            // ignore the exception
-        }
-
-        try {
-            configuration.setApiKey((String) config.get(DECONZ_BRIDGE_APIKEY));
-        } catch (Exception e) {
-            // ignore the exception
-        }
+        try { bridge.setBaseURL((String) config.get(DECONZ_BRIDGE_LOCATION)); } catch (Exception e) { }
+        try { bridge.setUsername((String) config.get(DECONZ_BRIDGE_USERNAME)); } catch (Exception e) { }
+        try { bridge.setPassword((String) config.get(DECONZ_BRIDGE_PASSWORD)); } catch (Exception e) { }
+        try { bridge.setApiKey((String) config.get(DECONZ_BRIDGE_APIKEY)); } catch (Exception e) { }
+        
+        smarthome.setBaseURL("http://localhost:8080");
         
         // create the notifiers        
-        reader = new RestReader(this, this, this);
+        bridge.addReader(this, this);
+        smarthome.addReader(this);
         
-        if (configuration.isValid()) {
+        if (bridge.isConfigurationValid()) {
         	// start the connect and update process
             updateStatus(ThingStatus.INITIALIZING);
-        	startWork();
+            bridge.startWork(scheduler);
+            smarthome.startWork(scheduler);
         } else {
             updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.OFFLINE.CONFIGURATION_ERROR, null);
             logger.debug("deconz has invalid configuration - thing diabled");
@@ -143,120 +105,112 @@ public class deCONZBridgeHandler extends BaseThingHandler implements RestBridgeR
 
     @Override
     public void dispose() {
-    	if (job != null) {
-    		job.cancel(true);
-    		job = null;
-    	}
+    	bridge.stopWork();
+    	smarthome.stopWork();
     }
 	
 	@Override
 	public void handleCommand(ChannelUID channelUID, Command command) {
-	}
-	
-	private void doWork() {
-		// this basically runs a state machine
-		if (stateCount > 0) {
-			stateCount--;
-			return;
-		}
-		
-		switch (state) {
-		case STATE_INIT:
-			state = doInit();
-			break;
-		case STATE_BASIC_AUTHENTICATE:
-			state = doBasicAuthentication();
-			break;
-		case STATE_UNLOCK_AUTHENTICATE:
-			state = doUnlockAuthentication();
-			break;
-		case STATE_READ_CONFIGURATION:
-			state = doGetConfiguration();
-			break;
-		case STATE_READ_DEVICES:
-			state = deGetDevices();
-			break;
-		case STATE_UPDATE:
-			state = doUpdate();
-			break;
-		default:
-            updateStatus(ThingStatus.INITIALIZING);
-			state = STATE_INIT;
-			break;
-		}
+		// nothing to do
 	}
 
-    private void startWork() {
-    	if (job == null) {
-	        Runnable runnable = new Runnable() {
-	            @Override
-	            public void run() {
-	                try {
-	                	doWork();
-	                } catch (Exception e) {
-	                    logger.debug("Exception occurred during execution of deconz work: {}", e.getMessage(), e);
-	                }
-	            }
-	        };
+	public void setDiscoveryService(deCONZDiscoveryService service) {
+		discovery = service;
+	}
 	
-	        job = scheduler.scheduleAtFixedRate(runnable, 0, 3, TimeUnit.SECONDS);
-    	}
-    }
+//	private void onUpdate() {
+//    }
 
-	private void onUpdate() {
-    }
-
-	public void updateLightState(deCONZLight light, deCONZLightStateUpdate lightState) {
-		// we only send updates for lights we know
-		if  (lights.containsKey(light.getId())) {
-	        RestResult result = rest.setLightState(light, lightState);
-	        if (result.getResult() == RestResult.REST_OK) {
-				lights.put(light.getId(), light);
-	            logger.debug("Update status for light {}.", light.getId());
-	            for (deCONZLightStatusListener lightStatusListener : lightStatusListeners) {
-	                try {
-	                    lightStatusListener.onLightStateChanged(light);
-	                } catch (Exception e) {
-	                    logger.error("An exception occurred while calling the light changed listener", e);
-	                }
-	            }
+	public void updateDeviceState(deCONZDevice device, deCONZDeviceState newState) {
+		// we only send updates for devices we know
+		if  (devices.containsKey(device.getInternalId())) {
+			RestResult result = null;
+        	boolean publish = false;
+			if (newState instanceof deCONZLightState) {
+		        result = bridge.setLightState(device, (deCONZLightState)newState);
+			} else if (newState instanceof deCONZSensorState) {
+		        result = bridge.setSensorState(device, (deCONZSensorState)newState);
+			} else if (newState instanceof deCONZTouchlinkState) {
+		        result = bridge.setTouchlinkState(device, (deCONZTouchlinkState)newState);
+		        // We do not really care for the result here - we want to re-publish the old state anyway
+		        publish = true;
+			}
+	        if (result != null) {
+	        	deCONZDevice dev = devices.get(device.getInternalId());
+	        	if (result.getResult() == RestResult.REST_OK) {
+		        	if (!dev.isState(newState)) {
+			        	dev.setState(newState);
+			            logger.debug("Update status for device {}.", dev.getInternalId());
+			            publish = true;
+		        	} else {
+			            logger.debug("Update status for device {} received with unchanged state.", 
+			            		dev.getInternalId());
+		        	}
+	        	} else if (result.getResult() == RestResult.REST_NOT_MODIFIED) {
+	        		// publish the old state
+		            logger.debug("Update failed - publish old status for device {}.", device.getInternalId());
+		            publish = true;
+	        	}
+	        	if (publish) {
+		            for (deCONZDeviceStatusListener listener : statusListeners) {
+		                try {
+		                	listener.onDeviceStateChanged(dev);
+		                } catch (Exception e) {
+		                    logger.error("An exception occurred while calling the device changed listener", e);
+		                }
+		            }
+	        	}
 	        }
 		}
 	}
 
-	public void updateSensorState(deCONZSensor sensor, deCONZLightStateUpdate newState) {
-		// we only send updates for sensors we know
-		if  (sensors.containsKey(sensor.getId())) {
-	        RestResult result = rest.setSensorState(sensor, newState);
-	        if (result.getResult() == RestResult.REST_OK) {
-				sensors.put(sensor.getId(), sensor);
-	            logger.debug("Update status for sensor {}.", sensor.getId());
-	            for (deCONZSensorStatusListener listener : sensorStatusListeners) {
-	                try {
-	                    listener.onSensorStateChanged(sensor);
-	                } catch (Exception e) {
-	                    logger.error("An exception occurred while calling the sensor changed listener", e);
-	                }
-	            }
-	        }
+	public deCONZDevice getDeviceById(String id) {
+        return devices.get(id);
+	}
+
+	public void addDeviceById(String id, Thing otherThing) {
+		if ((id != null) && (!devices.containsKey(id))) {
+			// This should not happen, but if someone adds a device manually to this bridge which does not belong to us (yet?) 
+			// we will be here. If we add this to our internal cache it would be removed on the next device update. So, currently
+			// we do not add this to our cache as not to remove it from the UI. If the user adds this device to the gateway later on,
+			// it will be added through the update and updated to online. This however is different for touchlink devices as those 
+			// are not removed from our device list.
+			if (deCONZDevice.isTouchlinkPrefix(id) && (otherThing != null)) {
+				// we need to recreate the deCONZDevice object to store it in our list
+				Configuration configuration = otherThing.getConfiguration();
+				if (configuration != null) {
+					Map<String, Object> properties = configuration.getProperties();
+					if ((properties != null) && properties.containsKey(DECONZ_UNIQUEID) && properties.containsKey(DECONZ_FACTORYNEW)) {
+						String unique = (String)properties.get(DECONZ_UNIQUEID);
+						String factory = (String)properties.get(DECONZ_FACTORYNEW);
+						boolean factoryNew = false;
+						if (factory.compareTo("Yes") == 0) {
+							factoryNew = true;
+						}
+						deCONZDevice device = new deCONZDevice(deCONZDevice.removePrefix(id), unique, "", "", "", "", 
+								unique,	new deCONZTouchlinkState(false, false, factoryNew));
+						device.makeTouchlink();
+						devices.put(id, device);
+					}
+				}
+			}
+		}
+	}
+
+	public void removeDeviceById(String id, Thing ting) {
+		if ((id != null) && (devices.containsKey(id))) {
+			// The light has been removed from the UI so remove it from our cache as well as to add it as new discovered thing back 
+			// to the UI.
+			devices.remove(id);
 		}
 	}
 	
-	public deCONZLight getLightById(String lightId) {
-        return lights.get(lightId);
-	}
-
-	public deCONZSensor getSensorById(String sensorId) {
-        return sensors.get(sensorId);
-	}
-	
-    public boolean registerLightStatusListener(deCONZLightStatusListener listener) {
+    public boolean registerStatusListener(deCONZDeviceStatusListener listener) {
         if (listener != null) {
-        	if (lightStatusListeners.add(listener)) {
-        		onUpdate();
-	            // inform the listener initially about all lights and their states
-	            for (deCONZLight light : lights.values()) {
-	                listener.onLightAdded(light);
+        	if (statusListeners.add(listener)) {
+	            // inform the listener initially about all devices and their states
+	            for (deCONZDevice device : devices.values()) {
+	                listener.onDeviceAdded(device);
 	            }
 	            return true;
         	}
@@ -264,118 +218,101 @@ public class deCONZBridgeHandler extends BaseThingHandler implements RestBridgeR
         return false;
     }
 
-    public boolean unregisterLightStatusListener(deCONZLightStatusListener listener) {
-        if (lightStatusListeners.remove(listener)) {
-            onUpdate();
+    public boolean unregisterStatusListener(deCONZDeviceStatusListener listener) {
+        if (statusListeners.remove(listener)) {
             return true;
         }
         return false;
     }
 
-    public boolean registerSensorStatusListener(deCONZSensorStatusListener listener) {
-        if (listener != null) {
-        	if (sensorStatusListeners.add(listener)) {
-        		onUpdate();
-	            // inform the listener initially about all sensors and their states
-	            for (deCONZSensor sensor : sensors.values()) {
-	                listener.onSensorAdded(sensor);
-	            }
-	            return true;
-        	}
-        }
-        return false;
-    }
 
-    public boolean unregisterSensorStatusListener(deCONZSensorStatusListener listener) {
-        if (sensorStatusListeners.remove(listener)) {
-            onUpdate();
-            return true;
+	public List<deCONZDevice> getAllKnownDevices() {
+        List<deCONZDevice> ret = new ArrayList<deCONZDevice>();
+        for (Entry<String, deCONZDevice> entry : devices.entrySet()) {
+       		ret.add(entry.getValue());
         }
-        return false;
-    }
+        return ret;
+	}
     
-	public List<deCONZLight> getAllKnownLights() {
-        List<deCONZLight> ret = new ArrayList<deCONZLight>();
-        for (Entry<String, deCONZLight> entry : lights.entrySet()) {
-        	ret.add(entry.getValue());
+	public List<deCONZDevice> getAllKnownLights() {
+        List<deCONZDevice> ret = new ArrayList<deCONZDevice>();
+        for (Entry<String, deCONZDevice> entry : devices.entrySet()) {
+        	if (entry.getValue().getState() instanceof deCONZLightState) {
+        		ret.add(entry.getValue());
+        	}
         }
         return ret;
 	}
 
-	public List<deCONZSensor> getAllKnownSensors() {
-        List<deCONZSensor> ret = new ArrayList<deCONZSensor>();
-        for (Entry<String, deCONZSensor> entry : sensors.entrySet()) {
-        	ret.add(entry.getValue());
+	public List<deCONZDevice> getAllKnownSensors() {
+        List<deCONZDevice> ret = new ArrayList<deCONZDevice>();
+        for (Entry<String, deCONZDevice> entry : devices.entrySet()) {
+        	if (entry.getValue().getState() instanceof deCONZSensorState) {
+        		ret.add(entry.getValue());
+        	}
         }
         return ret;
 	}
 
 	public void startSearch() {
-        if (rest != null) {
-//        	rest.searchDevices();
+        if (bridge != null) {
+        	bridge.startTouchlink();
         }
 	}
 
 	@Override
-	public void setBridgeName(String name) {
-		bridgeName = name;
-	}
-
-	@Override
-	public void setBridgeIpAddress(String address) {
-		// well, this should match our already known base URI
-	}
-
-	@Override
-	public void setBridgeMacAddress(String address) {
-		bridgeMac = address;
-        try {
-            Configuration config = editConfiguration();
-            config.put(DECONZ_UNIQUEID, address);
-            updateConfiguration(config);
-        } catch (Exception e) {
-            // ignore the exception
-        }
-	}
-
-	@Override
-	public void setBridgeSoftwareVersion(String version) {
-		bridgeVersion = version;
-		configuration.setSoftwareVersion(version);
-        try {
-            Configuration config = editConfiguration();
-            config.put(DECONZ_SOFTWAREVERSION, version);
-            updateConfiguration(config);
-        } catch (Exception e) {
-            // ignore the exception
-        }
-	}
-
-	@Override
-	public void setBridgeManufacturer(String maker) {
-        try {
-            Configuration config = editConfiguration();
-            config.put(DECONZ_MANUFACTURER, maker);
-            updateConfiguration(config);
-        } catch (Exception e) {
-            // ignore the exception
-        }
-	}
-
-	@Override
-	public void setBridgeModel(String model) {
-        try {
-            Configuration config = editConfiguration();
-            config.put(DECONZ_MODEL, model);
-            updateConfiguration(config);
-        } catch (Exception e) {
-            // ignore the exception
-        }
+	public void onStatusInfo(int status, String message) {
+		switch (status) {
+		case deCONZRestBridgeService.REST_INITIALIZING:
+            updateStatus(ThingStatus.INITIALIZING);
+			break;
+		case deCONZRestBridgeService.REST_ONLINE:
+			updateStatus(ThingStatus.ONLINE);
+			// The ThingManager sets all things that belong to this bridge to ONLINE as even if the device
+			// itself might already reported to be offline. Run an state update for all known devices.
+			updateDeviceStatus();
+			break;
+		case deCONZRestBridgeService.REST_COMMUNICATION_ERROR:
+            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.OFFLINE.COMMUNICATION_ERROR, message);
+			break;
+		case deCONZRestBridgeService.REST_CONFIGURATION_ERROR:
+            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.OFFLINE.CONFIGURATION_ERROR, message);
+            break;
+		}
 	}
 	
+	private void updateDeviceStatus() {
+		if (thing instanceof Bridge) {
+			List<Thing> things = ((Bridge)thing).getThings();
+			if (things != null) {
+		        for (Thing t : things) {
+		        	ThingHandler h = t.getHandler();
+		        	if (h != null) {
+		        		if (h instanceof deCONZDeviceHandler) {
+		        			((deCONZDeviceHandler)h).updateDeviceState();
+		        		}
+		        	}
+				}
+			}
+		}
+	}
+
+	@Override
+	public void setBridgeDetails(deCONZBridge bridge) {
+        try {
+            Configuration config = editConfiguration();
+            config.put(DECONZ_UNIQUEID, bridge.getMacAddress());
+            config.put(DECONZ_SOFTWAREVERSION, bridge.getSoftwareVersion());
+            config.put(DECONZ_MANUFACTURER, bridge.getManufacturer());
+            config.put(DECONZ_MODEL, bridge.getModel());
+            updateConfiguration(config);
+        } catch (Exception e) {
+            // ignore the exception
+        }
+	}
+
 	@Override
 	public void setBridgeApiKey(String key) {
-		configuration.setApiKey(key);
         try {
             Configuration config = editConfiguration();
             config.put(DECONZ_BRIDGE_APIKEY, key);
@@ -386,258 +323,98 @@ public class deCONZBridgeHandler extends BaseThingHandler implements RestBridgeR
 	}
 
 	@Override
-	public void onLightInfo(deCONZLight light) {
-		// we get a notification for each light which is know to the gateway - update our internal list
-		if (lights.containsKey(light.getId())) {
+	public void onDeviceInfo(deCONZDevice device) {
+		// we get a notification for each device which is know to the gateway - update our internal list
+		if (devices.containsKey(device.getInternalId())) {
 			// remove it from the backup
-            lightsBackup.remove(light.getId());
-            final deCONZLight last = lights.get(light.getId());
-            if (!last.isState(light.getState())) {
-                logger.debug("Status update for light {} detected.", light.getId());
-                for (deCONZLightStatusListener lightStatusListener : lightStatusListeners) {
+			if (devicesBackup != null) devicesBackup.remove(device.getInternalId());
+			deCONZDevice dev = devices.get(device.getInternalId());
+            if (!dev.getState().isEqual(device.getState())) {
+                logger.debug("Status update for device {} detected ({}).", device.getInternalId(), 
+                		dev.getState().getComparisonAsString(device.getState()));
+                // update the cached state
+                dev.setState(device.getState());
+                if (!dev.isState(device.getState())) {
+                	logger.error("state update did not work!");
+                    dev.setState(device.getState());
+                }
+                // inform the listeners
+                for (deCONZDeviceStatusListener listener : statusListeners) {
                     try {
-                        lightStatusListener.onLightStateChanged(light);
+                        listener.onDeviceStateChanged(dev);
                     } catch (Exception e) {
-                        logger.error("An exception occurred while calling the light changed listener", e);
+                        logger.error("An exception occurred while calling the device changed listener", e);
                     }
                 }
             }
 		} else {
-			// Check if we know this light type
-			if (light.convertToThingType()) {
-	            logger.debug("add new light {} ({}) as {}.", light.getId(), light.getModelID(), 
-	            		light.getThingType());
-	            // add it to our lights list
-	            lights.put(light.getId(), light);
+			// Check if we know this device type
+			if (device.convertToThingType()) {
+	            logger.debug("add new device {} ({}) as {}.", device.getInternalId(), device.getModelID(), 
+	            		device.getThingType());
+	            // add it to our device list
+	            devices.put(device.getInternalId(), device);
 	            // inform all listeners
-	            for (deCONZLightStatusListener lightStatusListener : lightStatusListeners) {
+	            for (deCONZDeviceStatusListener listener : statusListeners) {
 	                try {
-	                    lightStatusListener.onLightAdded(light);
+	                    listener.onDeviceAdded(device);
 	                } catch (Exception e) {
-	                    logger.error("An exception occurred while calling the light add listener", e);
+	                    logger.error("An exception occurred while calling the device add listener", e);
 	                }
 	            }
+	            // make it available as discovery result
+	            if (discovery != null) {
+	            	discovery.deviceAdded(device);
+	            }
 			} else {
-	            logger.warn("cannot add new light {} ({}) - unknown type.", light.getId(), light.getModelID());
+	            logger.warn("cannot add new device {} ({}, {}) - unknown type.", device.getInternalId(), 
+	            		device.getModelID(), device.getDeviceType());
 			}
 		}
 	}
 
 	@Override
-	public void beginLightInfo() {
-		// copy the last known lights to a backup list
-		lightsBackup = new HashMap<>(lights);
+	public void beginDeviceInfo() {
+		// copy the last known devices to a backup list
+		devicesBackup = new HashMap<>(devices);
 	}
 
 	@Override
-	public void endLightInfo() {
-        // check for remaining (removed) lights
-        for (Entry<String, deCONZLight> entry : lightsBackup.entrySet()) {
-        	// remove it from our light list
-            lights.remove(entry.getKey());
-            logger.debug("remove light {}.", entry.getKey());
-            for (deCONZLightStatusListener lightStatusListener : lightStatusListeners) {
-                try {
-                    lightStatusListener.onLightRemoved(entry.getValue());
-                } catch (Exception e) {
-                    logger.error("An exception occurred while calling the light removed listener", e);
-                }
-            }
-        }
-        lightsBackup = null;
-	}
-
-	@Override
-	public void onSensorInfo(deCONZSensor sensor) {
-		// we get a notification for every sensor which is know to the gateway - update our internal list
-		if (sensors.containsKey(sensor.getId())) {
-			// remove it from the backup
-            sensorsBackup.remove(sensor.getId());
-            final deCONZSensor last = sensors.get(sensor.getId());
-            if (!last.isState(sensor.getState())) {
-                logger.debug("Status update for sensor {} detected.", sensor.getId());
-                for (deCONZSensorStatusListener listener : sensorStatusListeners) {
-                    try {
-                        listener.onSensorStateChanged(sensor);
-                    } catch (Exception e) {
-                        logger.error("An exception occurred while calling the sensor changed listener", e);
-                    }
-                }
-            }
-		} else {
-			// Check if we know this sensor type
-			if (sensor.convertToThingType()) {
-	            logger.debug("add new sensor {} ({}) as {}.", sensor.getId(), sensor.getModelID(), 
-	            		sensor.getThingType());
-	            // add it to our lights list
-	            sensors.put(sensor.getId(), sensor);
-	            // inform all listeners
-	            for (deCONZSensorStatusListener listener : sensorStatusListeners) {
+	public void endDeviceInfo() {
+        // check for remaining (removed) devices
+        for (Entry<String, deCONZDevice> entry : devicesBackup.entrySet()) {
+        	// If it is a touchlink device we will not get any updates for it. Therefore we have to
+        	// consider touchlink devices as still there until removed via the UI.
+        	deCONZDevice d = entry.getValue();
+        	if ((d.getState() == null) && !(d.getState() instanceof deCONZTouchlinkState)) {
+	        	// remove it from our device list
+	            devices.remove(entry.getKey());
+	            logger.debug("remove device {}.", entry.getKey());
+	            for (deCONZDeviceStatusListener listener : statusListeners) {
 	                try {
-	                    listener.onSensorAdded(sensor);
+	                    listener.onDeviceRemoved(entry.getValue());
 	                } catch (Exception e) {
-	                    logger.error("An exception occurred while calling the sensor add listener", e);
+	                    logger.error("An exception occurred while calling the device removed listener", e);
 	                }
 	            }
-			} else {
-	            logger.warn("cannot add new sensor {} ({}) - unknown type.", sensor.getId(), sensor.getModelID());
-			}
-		}
-	}
-
-	@Override
-	public void beginSensorInfo() {
-		// copy the last known sensors to a backup list
-		sensorsBackup = new HashMap<>(sensors);
-	}
-
-	@Override
-	public void endSensorInfo() {
-        // check for remaining (removed) sensors
-        for (Entry<String, deCONZSensor> entry : sensorsBackup.entrySet()) {
-        	// remove it from our sensor list
-            sensors.remove(entry.getKey());
-            logger.debug("remove sensor {}.", entry.getKey());
-            for (deCONZSensorStatusListener listener : sensorStatusListeners) {
-                try {
-                    listener.onSensorRemoved(entry.getValue());
-                } catch (Exception e) {
-                    logger.error("An exception occurred while calling the sensor removed listener", e);
-                }
-            }
+	            // make it visible to the platform
+	            if (discovery != null) {
+	            	discovery.deviceRemoved(entry.getValue());
+	            }
+        	}
         }
-        sensorsBackup = null;
+        devicesBackup = null;
 	}
-	
-	private int doInit() {
-		rest.setBaseURI(configuration.getInstance());
-		// The first step is to authenticate against the bridge. This depends on the configuration data given.
-		// If an API key is available we try to use this without authenticating, that is, getting a new API key.
-		String s1 = configuration.getApiKey();
-		if ((s1 != null) && (s1.length() > 0)) {
-			rest.setApiKey(s1);
-			return STATE_READ_CONFIGURATION;
-		}
 
-		// If no API key is given we have two options to authenticate. With a password and user name we can
-		// can authenticate without user interaction. Lets try this first.
-		s1 = configuration.getUserName();
-		String s2 = configuration.getPassword();
-		if ((s1 != null) && (s1.length() > 0) && (s2 != null) && (s2.length() > 0)) {
-			return STATE_BASIC_AUTHENTICATE;
+	@Override
+	public void onGroupInfo(deCONZGroup group) {
+		if ((group != null) && (smarthome != null)) {
+//			smarthome.checkAndCreateGroup(group.getName());
 		}
-		// Now we need the user interaction, that is, the bridge needs to be unlocked.
-		return STATE_UNLOCK_AUTHENTICATE;
 	}
-	
-	private int doBasicAuthentication() {
-		RestResult error = rest.authenticateBasic(configuration.getUserName(), 
-				configuration.getPassword(), reader);
-		switch (error.getResult()) {
-		case RestResult.REST_OK:
-			// update state to ONLINE
-			updateStatus(ThingStatus.ONLINE);
-			return STATE_READ_CONFIGURATION;
-		case RestResult.REST_CONNECT_ERROR:
-			// update state to OFFLINE
-            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.OFFLINE.COMMUNICATION_ERROR, "The deCONZ bridge at " + 
-            		configuration.getInstance() + " is not reachable");
-            break;
-		case RestResult.REST_AUTHENTICATION_ERROR:
-			// update state to OFFLINE
-            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.OFFLINE.CONFIGURATION_ERROR, "Authentication failed. " + 
-            		"Please check the provided user name and password.");
-            break;
-		}
-        // in case of connection, authentication or general errors we want to wait a bit 
-		// until the next round
-        stateCount = 60;
-		return STATE_INIT;
-	}
-	
-	private int doUnlockAuthentication() {
-		RestResult error = rest.authenticateUnlocked(reader);
-		switch (error.getResult()) {
-		case RestResult.REST_OK:
-			// update state to ONLINE
-			updateStatus(ThingStatus.ONLINE);
-			return STATE_READ_CONFIGURATION;
-		case RestResult.REST_CONNECT_ERROR:
-			// update state to OFFLINE
-            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.OFFLINE.COMMUNICATION_ERROR, "The deCONZ bridge at " + 
-            		configuration.getInstance() +	" is not reachable");
-            break;
-		case RestResult.REST_AUTHENTICATION_ERROR:
-			// update state to OFFLINE
-            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.OFFLINE.CONFIGURATION_ERROR, "Authentication failed. " + 
-            		"Please unlock the bridge to allow authentication. To unlock the bridge go to " +
-            		"system->unlock. This will unlock the bridge for 60 seconds. It will be closed " + 
-            		"automatically after the time is over.");
-            break;
-		}
-        // in case of connection, authentication or general errors we want to wait a bit 
-		// until the next round
-        stateCount = 60;
-		return STATE_INIT;
-	}
-	
-	private int doGetConfiguration() {
-		RestResult error = rest.connect(reader);
-		switch (error.getResult()) {
-		case RestResult.REST_OK:
-			// update state to ONLINE
-			updateStatus(ThingStatus.ONLINE);
-			return STATE_READ_DEVICES;
-		case RestResult.REST_RESPONSE_ERROR:
-			// well, we have a wrong response from the rest interface. Stay here and retry
-			// after a while
-			stateCount = 10;
-			return STATE_READ_CONFIGURATION;
-		case RestResult.REST_CONNECT_ERROR:
-			// update state to OFFLINE
-            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.OFFLINE.COMMUNICATION_ERROR, "The deCONZ bridge at " + 
-            		configuration.getInstance() + " is not reachable");
-            break;
-		case RestResult.REST_AUTHENTICATION_ERROR:
-			// update state to OFFLINE
-            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.OFFLINE.CONFIGURATION_ERROR, "The deCONZ bridge at " + 
-            		configuration.getInstance() + " is reachable but the binding is not authorized to access the API." + 
-            		"A reaon might be that the given API key is not or no longer valid. Try removing the API key in " +
-            		"order to aquire a new one.");
-            break;
-		}
-        // in case of connection, authentication or general errors we want to wait a bit 
-		// until the next round
-        stateCount = 60;
-		return STATE_INIT;
-	}
-	
-	private int deGetDevices() {
-		RestResult error = rest.getDevices(reader);
-		switch (error.getResult()) {
-		case RestResult.REST_OK:
-			// run an update after some time
-			stateCount = 60;
-			return STATE_UPDATE;
-		case RestResult.REST_RESPONSE_ERROR:
-			// well, we have a wrong response from the rest interface. Stay here and retry
-			// after a while
-			stateCount = 10;
-			return STATE_READ_DEVICES;
-		default:
-			// all other errors are considered connection problems which
-			// lead back to the initial state which than in turns updates
-			// the thing status. There is no need to do it here
-            break;
-		}
-        // in case of connection, authentication or general errors we want to wait a bit 
-		// until the next round
-        stateCount = 60;
-		return STATE_INIT;
-	}
-	
-	private int doUpdate() {
-		return STATE_READ_DEVICES;
+
+	@Override
+	public void onResult() {
 	}
 }
 

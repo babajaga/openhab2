@@ -41,4 +41,20 @@
         <category>Switch</category>
     </channel-type>
 
+    <!-- Identify Channel for touchlinked devices -->
+    <channel-type id="deconzIdentify">
+        <item-type>Switch</item-type>
+        <label>Identify</label>
+        <description>The Identify channel triggers the identification precedure of the device. How the device identifies itself depends on the device. For lights it is common to flsh a couple of times.</description>
+        <category>Switch</category>
+    </channel-type>
+
+    <!-- Reset Channel for touchlinked devices -->
+    <channel-type id="deconzReset">
+        <item-type>Switch</item-type>
+        <label>Reset</label>
+        <description>The Reset channel triggers a reset of the device. The device will delete all its stored network information and is tha able to join another open ZigBee network.</description>
+        <category>Switch</category>
+    </channel-type>
+
 </thing:thing-descriptions>

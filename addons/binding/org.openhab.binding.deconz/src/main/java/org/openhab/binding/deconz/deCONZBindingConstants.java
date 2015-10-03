@@ -20,6 +20,8 @@ public class deCONZBindingConstants {
     
     public final static ThingTypeUID THING_TYPE_ONOFFSWITCH = new ThingTypeUID(BINDING_ID, "deCONZSwitch");
     public final static ThingTypeUID THING_TYPE_DIMSWITCH = new ThingTypeUID(BINDING_ID, "deCONZDimmer");
+
+    public final static ThingTypeUID THING_TYPE_TOUCHLINKDEVICE = new ThingTypeUID(BINDING_ID, "ZigBeeTouchlinkDevice");
     
     // List of configuration parameter names
     public static final String DECONZ_BRIDGE_LOCATION = "BridgeLocation";
@@ -30,8 +32,11 @@ public class deCONZBindingConstants {
     public static final String DECONZ_UNIQUEID = "UniqueId";
     public static final String DECONZ_MANUFACTURER = "Manufacturer";
     public static final String DECONZ_MODEL = "Model";
+    public static final String DECONZ_FACTORYNEW = "FactoryNew";
+        
     public static final String DECONZ_LIGHT_ID = "deconzLightID";
     public static final String DECONZ_SENSOR_ID = "deconzSensorID";
+    public static final String DECONZ_TOUCHLINK_ID = "deconzTouchlinkID";
 
     public static final String DECONZ_SERIAL_NUMBER = "serialNumber";
     
@@ -40,4 +45,6 @@ public class deCONZBindingConstants {
     public final static String DECONZ_CHANNEL_COLORTEMP = "deconzColorTemperature";
     public final static String DECONZ_CHANNEL_BRIGHTNESS = "deconzBrightness";
     public final static String DECONZ_CHANNEL_ONOFF = "deconzOnOff";
+    public final static String DECONZ_CHANNEL_IDENTIFY = "deconzIdentify";
+    public final static String DECONZ_CHANNEL_RESET = "deconzReset";
 }

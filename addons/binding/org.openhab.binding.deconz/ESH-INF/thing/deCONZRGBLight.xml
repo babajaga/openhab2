@@ -16,6 +16,7 @@
         <channels>
             <channel id="deconzColor" typeId="deconzColor" />
             <channel id="deconzColorTemperature" typeId="deconzColorTemperature" />
+            <channel id="deconzBrightness" typeId="deconzBrightness" />
         </channels>
 
   	    <config-description>

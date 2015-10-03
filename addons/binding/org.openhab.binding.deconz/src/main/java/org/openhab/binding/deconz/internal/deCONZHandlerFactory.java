@@ -11,6 +11,7 @@ import java.util.UUID;
 import org.openhab.binding.deconz.handler.deCONZBridgeHandler;
 import org.openhab.binding.deconz.handler.deCONZLightHandler;
 import org.openhab.binding.deconz.handler.deCONZSensorHandler;
+import org.openhab.binding.deconz.handler.deCONZTouchlinkHandler;
 
 import com.google.common.collect.Sets;
 
@@ -33,8 +34,8 @@ import org.osgi.framework.ServiceRegistration;
  */
 public class deCONZHandlerFactory extends BaseThingHandlerFactory {
     
-    private final static Set<ThingTypeUID> SUPPORTED_THING_TYPES = Sets.union(Sets.union(deCONZBridgeHandler.SUPPORTED_THING_TYPES,
-            deCONZLightHandler.SUPPORTED_THING_TYPES), deCONZSensorHandler.SUPPORTED_THING_TYPES);
+    private final static Set<ThingTypeUID> SUPPORTED_THING_TYPES = Sets.union(Sets.union(Sets.union(deCONZBridgeHandler.SUPPORTED_THING_TYPES,
+            deCONZLightHandler.SUPPORTED_THING_TYPES), deCONZSensorHandler.SUPPORTED_THING_TYPES), deCONZTouchlinkHandler.SUPPORTED_THING_TYPES);
     private Map<ThingUID, ServiceRegistration<?>> discoveryServiceRegs = new HashMap<>();
     
     @Override
@@ -46,7 +47,7 @@ public class deCONZHandlerFactory extends BaseThingHandlerFactory {
     protected ThingHandler createHandler(Thing thing) {
         if (deCONZBridgeHandler.SUPPORTED_THING_TYPES.contains(thing.getThingTypeUID())) {
         	deCONZBridgeHandler handler = new deCONZBridgeHandler((Bridge) thing);
-            registerLightDiscoveryService(handler);
+            registerDiscoveryService(handler);
             return handler;
         }
         if (deCONZLightHandler.SUPPORTED_THING_TYPES.contains(thing.getThingTypeUID())) {
@@ -54,6 +55,9 @@ public class deCONZHandlerFactory extends BaseThingHandlerFactory {
         }
         if (deCONZSensorHandler.SUPPORTED_THING_TYPES.contains(thing.getThingTypeUID())) {
             return new deCONZSensorHandler(thing);
+        }
+        if (deCONZTouchlinkHandler.SUPPORTED_THING_TYPES.contains(thing.getThingTypeUID())) {
+            return new deCONZTouchlinkHandler(thing);
         }
         return null;
     }
@@ -71,6 +75,10 @@ public class deCONZHandlerFactory extends BaseThingHandlerFactory {
         }
         if (deCONZSensorHandler.SUPPORTED_THING_TYPES.contains(thingTypeUID)) {
             ThingUID sensor = getSensorUID(thingTypeUID, thingUID, configuration, bridgeUID);
+            return super.createThing(thingTypeUID, configuration, sensor, bridgeUID);
+        }
+        if (deCONZTouchlinkHandler.SUPPORTED_THING_TYPES.contains(thingTypeUID)) {
+            ThingUID sensor = getTouchlinkUID(thingTypeUID, thingUID, configuration, bridgeUID);
             return super.createThing(thingTypeUID, configuration, sensor, bridgeUID);
         }
         throw new IllegalArgumentException("The thing type " + thingTypeUID + " is not supported by the deconz binding.");
@@ -104,17 +112,31 @@ public class deCONZHandlerFactory extends BaseThingHandlerFactory {
         }
         return thingUID;
     }
+
+    private ThingUID getTouchlinkUID(ThingTypeUID thingTypeUID, ThingUID thingUID, Configuration configuration,
+            ThingUID bridgeUID) {
+        String id = (String) configuration.get(DECONZ_TOUCHLINK_ID);
+
+        if (thingUID == null) {
+            thingUID = new ThingUID(thingTypeUID, id, bridgeUID.getId());
+        }
+        return thingUID;
+    }
     
-    private synchronized void registerLightDiscoveryService(deCONZBridgeHandler handler) {
-        deCONZDiscoveryService discovery = new deCONZDiscoveryService(handler);
-        discovery.activate();
-        this.discoveryServiceRegs.put(handler.getThing().getUID(), bundleContext.registerService(
-                DiscoveryService.class.getName(), discovery, new Hashtable<String, Object>()));
+    private synchronized void registerDiscoveryService(ThingHandler thingHandler) {
+        if (thingHandler instanceof deCONZBridgeHandler) {
+            deCONZDiscoveryService service = new deCONZDiscoveryService((deCONZBridgeHandler)thingHandler);
+            service.activate();
+            this.discoveryServiceRegs.put(thingHandler.getThing().getUID(), bundleContext.registerService(
+                    DiscoveryService.class.getName(), service, new Hashtable<String, Object>()));
+            ((deCONZBridgeHandler)thingHandler).setDiscoveryService(service);
+        }
     }
 
     @Override
     protected synchronized void removeHandler(ThingHandler thingHandler) {
         if (thingHandler instanceof deCONZBridgeHandler) {
+        	((deCONZBridgeHandler)thingHandler).setDiscoveryService(null);
             ServiceRegistration<?> serviceReg = this.discoveryServiceRegs.get(thingHandler.getThing().getUID());
             if (serviceReg != null) {
             	deCONZDiscoveryService service = (deCONZDiscoveryService) bundleContext.getService(serviceReg

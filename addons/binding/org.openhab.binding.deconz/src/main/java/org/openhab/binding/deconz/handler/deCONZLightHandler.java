@@ -8,18 +8,10 @@ import org.eclipse.smarthome.core.library.types.HSBType;
 import org.eclipse.smarthome.core.library.types.IncreaseDecreaseType;
 import org.eclipse.smarthome.core.library.types.OnOffType;
 import org.eclipse.smarthome.core.library.types.PercentType;
-import org.eclipse.smarthome.core.thing.Bridge;
 import org.eclipse.smarthome.core.thing.ChannelUID;
 import org.eclipse.smarthome.core.thing.Thing;
-import org.eclipse.smarthome.core.thing.ThingStatus;
-import org.eclipse.smarthome.core.thing.ThingStatusDetail;
-import org.eclipse.smarthome.core.thing.ThingStatusInfo;
 import org.eclipse.smarthome.core.thing.ThingTypeUID;
-import org.eclipse.smarthome.core.thing.binding.BaseThingHandler;
-import org.eclipse.smarthome.core.thing.binding.ThingHandler;
 import org.eclipse.smarthome.core.types.Command;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Sets;
 
@@ -29,241 +21,163 @@ import com.google.common.collect.Sets;
  *
  * @author Mike Ludwig - Initial contribution of deconz binding
  */
-public class deCONZLightHandler extends BaseThingHandler implements deCONZLightStatusListener {
+public class deCONZLightHandler extends deCONZDeviceHandler {
 
     public final static Set<ThingTypeUID> SUPPORTED_THING_TYPES = Sets.newHashSet(THING_TYPE_RGBLIGHT, 
     		THING_TYPE_DIMLIGHT, THING_TYPE_ONOFFLIGHT);
+    
+    private int lastBrightness = -1;
+    private int lastColorTemperature = -1;
 
-    private String lightId;
-    private Integer lastSentColorTemp;
-    private Integer lastSentBrightness;
-    private Logger logger = LoggerFactory.getLogger(deCONZLightHandler.class);
-    private deCONZBridgeHandler bridgeHandler;
-
-    public deCONZLightHandler(Thing deconzLight) {
-        super(deconzLight);
+    public deCONZLightHandler(Thing thing) {
+        super(thing);
     }
 
     @Override
-    public void initialize() {
-        logger.debug("Initializing deconz light handler.");
-        final String configLightId = (String) getConfig().get(DECONZ_LIGHT_ID);
-        if (configLightId != null) {
-            lightId = configLightId;
-            // Access the bridge and register a light state listener to get  informed about light state changes.
-            // This is done in a function as it is essential to get access to the bridge and register the listener
-            // add the bridge access might fail right away but succeeds in later calls. 
-        	getBridgeHandler();
-            // Get the state from the bridge handler and update the status
-        	Bridge bridge = getBridge();
-        	if (bridge != null) {
-        		ThingStatusInfo statusInfo = bridge.getStatusInfo();
-        		updateStatus(statusInfo.getStatus(), statusInfo.getStatusDetail(), statusInfo.getDescription());
-        	}
-        }
+    protected void handleInitializeForDevice() {
+        setDeviceId((String) getConfig().get(DECONZ_LIGHT_ID));
     }
-
+    
     @Override
-    public void dispose() {
-        logger.debug("Disposing deconz light handler.");
-        disposeBridgeHandler();        
-        lightId = null;
+    protected void handleDisposeForDevice() {
+    	// nothing to do
     }
-
-    private deCONZLight getLight() {
-        deCONZBridgeHandler bridgeHandler = getBridgeHandler();
-        if (bridgeHandler != null) {
-            return bridgeHandler.getLightById(lightId);
-        }
-        return null;
-    }
-
+    
     @Override
-    public void handleCommand(ChannelUID channelUID, Command command) {
-
-        deCONZBridgeHandler bridgeHandler = getBridgeHandler();
-        if (bridgeHandler == null) {
-            logger.warn("deconz bridge handler not found. Cannot handle command without bridge.");
-            return;
-        }
-
-        deCONZLight light = getLight();
-        if (light == null) {
-            logger.debug("light not known on bridge. Cannot handle command.");
-            return;
-        }
-
-        deCONZLightStateUpdate lightState = null;
-
-        switch (channelUID.getId()) {
+    protected deCONZDeviceState handleCommandForDevice(ChannelUID channelUID, Command command, deCONZDeviceState currentState) {
+    	deCONZDeviceState newState = null;
+    	if ((currentState != null) && (currentState instanceof deCONZLightState)) {
+	        switch (channelUID.getId()) {
             case DECONZ_CHANNEL_COLORTEMP:
                 if (command instanceof PercentType) {
-                    lightState = deCONZStateConverter.toColorTemperatureLightState((PercentType) command);
+                	newState = deCONZStateConverter.toColorTemperatureLightState((PercentType) command, (deCONZLightState)currentState);
+                	logger.debug("CT percent");
                 } else if (command instanceof OnOffType) {
-                    lightState = deCONZStateConverter.toOnOffLightState((OnOffType) command);
+                	newState = deCONZStateConverter.toOnOffLightState((OnOffType) command, (deCONZLightState)currentState);
+                	logger.debug("CT on/off");
+                	if (((deCONZLightState)currentState).isOn() && !((deCONZLightState)newState).isOn()) {
+                		// switch off - set color temperature to 0
+                		lastColorTemperature = ((deCONZLightState)currentState).getBrightness();
+                    	logger.debug("save last CT");
+                	} else if (!((deCONZLightState)currentState).isOn() && ((deCONZLightState)newState).isOn()) {
+                		// switch off - set color temperature to last known value
+                		((deCONZLightState)newState).setColorTemperature(lastColorTemperature);
+                    	logger.debug("restore last CT");
+                	}
                 } else if (command instanceof IncreaseDecreaseType) {
-                    lightState = convertColorTempChangeToStateUpdate((IncreaseDecreaseType) command, light);
+                	newState = convertColorTempChangeToStateUpdate((IncreaseDecreaseType) command, (deCONZLightState)currentState);
+                	logger.debug("CT increase/decrease");
                 }
                 break;
             case DECONZ_CHANNEL_BRIGHTNESS:
                 if (command instanceof PercentType) {
-                    lightState = deCONZStateConverter.toBrightnessLightState((PercentType) command);
+                	newState = deCONZStateConverter.toBrightnessLightState((PercentType) command, (deCONZLightState)currentState);
+                	logger.debug("BRI percent");
                 } else if (command instanceof OnOffType) {
-                    lightState = deCONZStateConverter.toOnOffLightState((OnOffType) command);
+                	newState = deCONZStateConverter.toOnOffLightState((OnOffType) command, (deCONZLightState)currentState);
+                	logger.debug("BRI on/off");
+                	if (((deCONZLightState)currentState).isOn() && !((deCONZLightState)newState).isOn()) {
+                		// switch off - set brightness to 0
+                		lastBrightness = ((deCONZLightState)currentState).getBrightness();
+                    	logger.debug("save last BRI");
+                	} else if (!((deCONZLightState)currentState).isOn() && ((deCONZLightState)newState).isOn()) {
+                		// switch off - set brightness to last known value
+                		((deCONZLightState)newState).setBrightness(lastBrightness);
+                    	logger.debug("restore last BRI");
+                	}
                 } else if (command instanceof IncreaseDecreaseType) {
-                    lightState = convertBrightnessChangeToStateUpdate((IncreaseDecreaseType) command, light);
+                	newState = convertBrightnessChangeToStateUpdate((IncreaseDecreaseType) command, (deCONZLightState)currentState);
+                	logger.debug("BRI increase/decrease");
                 }
                 break;
             case DECONZ_CHANNEL_COLOR:
                 if (command instanceof HSBType) {
                     HSBType hsbCommand = (HSBType) command;
                     if (hsbCommand.getBrightness().intValue() == 0) {
-                        lightState = deCONZStateConverter.toOnOffLightState(OnOffType.OFF);
+                    	newState = deCONZStateConverter.toOnOffLightState(OnOffType.OFF, (deCONZLightState)currentState);
                     } else {
-                        lightState = deCONZStateConverter.toColorLightState(hsbCommand);
+                    	newState = deCONZStateConverter.toColorLightState(hsbCommand, (deCONZLightState)currentState);
                     }
+                	logger.debug("COL hsb");
                 } else if (command instanceof PercentType) {
-                    lightState = deCONZStateConverter.toBrightnessLightState((PercentType) command);
+                	newState = deCONZStateConverter.toBrightnessLightState((PercentType) command, (deCONZLightState)currentState);
+                	logger.debug("COL percent");
                 } else if (command instanceof OnOffType) {
-                    lightState = deCONZStateConverter.toOnOffLightState((OnOffType) command);
+                	newState = deCONZStateConverter.toOnOffLightState((OnOffType) command, (deCONZLightState)currentState);
+                	logger.debug("COL on/off");
+                	if (((deCONZLightState)currentState).isOn() && !((deCONZLightState)newState).isOn()) {
+                		// switch off - set brightness to 0
+                		lastBrightness = ((deCONZLightState)currentState).getBrightness();
+                    	logger.debug("save last BRI");
+                	} else if (!((deCONZLightState)currentState).isOn() && ((deCONZLightState)newState).isOn()) {
+                		// switch off - set brightness to last known value
+                		((deCONZLightState)newState).setBrightness(lastBrightness);
+                    	logger.debug("restore last BRI");
+                	}
                 } else if (command instanceof IncreaseDecreaseType) {
-                    lightState = convertBrightnessChangeToStateUpdate((IncreaseDecreaseType) command, light);
+                	newState = convertBrightnessChangeToStateUpdate((IncreaseDecreaseType) command, (deCONZLightState)currentState);
+                	logger.debug("COL increase/decrease");
                 }
                 break;
             case DECONZ_CHANNEL_ONOFF:
                 if (command instanceof OnOffType) {
-                    lightState = deCONZStateConverter.toOnOffLightState((OnOffType) command);
+                	newState = deCONZStateConverter.toOnOffLightState((OnOffType) command, (deCONZLightState)currentState);
+                	logger.debug("ON/OFF");
                 }
                 break;
-        }
-        if (lightState != null) {
-            bridgeHandler.updateLightState(light, lightState);
-        } else {
-            logger.warn("Command send to an unknown channel id: " + channelUID);
-        }
+	        }
+    	}
+        return newState;
     }
 
-    private deCONZLightStateUpdate convertColorTempChangeToStateUpdate(IncreaseDecreaseType command, deCONZLight light) {
-        deCONZLightStateUpdate update = null;
-        Integer currentColorTemp = getCurrentColorTemp(light.getState());
-        if (currentColorTemp != null) {
-            int newColorTemp = deCONZStateConverter.toAdjustedColorTemp(command, currentColorTemp);
-            update = new deCONZLightStateUpdate();
-            update.setColorTemperature(newColorTemp);
-            lastSentColorTemp = newColorTemp;
+	@Override
+	public void handleStateChangeForDevice(ChannelUID channelUID, deCONZDeviceState currentState) {
+        if (currentState instanceof deCONZLightState) {
+        	deCONZLightState state = (deCONZLightState)currentState;
+			HSBType hsbType;
+			switch (channelUID.getId()) {
+            case DECONZ_CHANNEL_COLORTEMP:
+		        updateState(channelUID, deCONZStateConverter.toColorTemperaturePercentType(state));
+            	break;
+            case DECONZ_CHANNEL_BRIGHTNESS:
+		        if (!state.isOn()) {
+		        	updateState(channelUID, new PercentType(0));
+		        } else {
+		        	updateState(channelUID, deCONZStateConverter.toBrightnessPercentType(state));
+		        }
+            	break;
+            case DECONZ_CHANNEL_COLOR:
+		        hsbType = deCONZStateConverter.toHSBType(state);
+        		if (!state.isOn()) {
+            		hsbType = new HSBType(hsbType.getHue(), hsbType.getSaturation(), new PercentType(0));
+        		}
+		        updateState(channelUID, hsbType);
+            	break;
+            case DECONZ_CHANNEL_ONOFF:
+		        updateState(channelUID, state.isOn() ? OnOffType.ON : OnOffType.OFF);
+            	break;
+			}
         }
+	}
+    
+    private deCONZDeviceState convertColorTempChangeToStateUpdate(IncreaseDecreaseType command, deCONZLightState state) {
+        int colorTemperature = deCONZStateConverter.toAdjustedColorTemp(command, state.getColorTemperature());
+        deCONZLightState update = new deCONZLightState(true, false, 0, 0, 0, 0);
+        update.assign(state);
+        update.setColorTemperature(colorTemperature);
         return update;
     }
 
-    private Integer getCurrentColorTemp(deCONZLightState lightState) {
-        Integer colorTemp = lastSentColorTemp;
-        if (colorTemp == null && lightState != null) {
-            colorTemp = lightState.getColorTemperature();
-        }
-        return colorTemp;
-    }
-
-    private deCONZLightStateUpdate convertBrightnessChangeToStateUpdate(IncreaseDecreaseType command, deCONZLight light) {
-        deCONZLightStateUpdate update = null;
-        Integer currentBrightness = getCurrentBrightness(light.getState());
-        if (currentBrightness != null) {
-            int newBrightness = deCONZStateConverter.toAdjustedBrightness(command, currentBrightness);
-            update = createBrightnessStateUpdate(currentBrightness, newBrightness);
-            lastSentBrightness = newBrightness;
-        }
-        return update;
-    }
-
-    private Integer getCurrentBrightness(deCONZLightState lightState) {
-        Integer brightness = lastSentBrightness;
-        if (brightness == null && lightState != null) {
-            if (!lightState.isOn()) {
-                brightness = 0;
-            } else {
-                brightness = lightState.getBrightness();
-            }
-        }
-        return brightness;
-    }
-
-    private deCONZLightStateUpdate createBrightnessStateUpdate(int currentBrightness, int newBrightness) {
-        deCONZLightStateUpdate update = new deCONZLightStateUpdate();
-        if (newBrightness == 0) {
+    private deCONZDeviceState convertBrightnessChangeToStateUpdate(IncreaseDecreaseType command, deCONZLightState state) {
+        int brightness = deCONZStateConverter.toAdjustedBrightness(command, state.getBrightness());
+        deCONZLightState update = new deCONZLightState(true, false, 0, 0, 0, 0);
+        update.assign(state);
+        if (brightness == 0) {
             update.setOn(false);
         } else {
-            update.setBrightness(newBrightness);
-            if (currentBrightness == 0){
-                update.setOn(true);
-            }
+            update.setBrightness(brightness);
+            update.setOn(true);
         }
         return update;
     }
-
-    private synchronized deCONZBridgeHandler getBridgeHandler() {
-        if (bridgeHandler == null) {
-            Bridge bridge = getBridge();
-            if (bridge == null) {
-                return null;
-            }
-            ThingHandler handler = bridge.getHandler();
-            if (handler instanceof deCONZBridgeHandler) {
-                bridgeHandler = (deCONZBridgeHandler) handler;
-                bridgeHandler.registerLightStatusListener(this);
-            } else {
-                return null;
-            }
-        }
-        return bridgeHandler;
-    }
-
-    private void disposeBridgeHandler() {
-        if (bridgeHandler != null) {
-        	bridgeHandler.unregisterLightStatusListener(this);
-        }
-    }
-    
-	@Override
-	public void onLightStateChanged(deCONZLight light) {
-        if (light.getId().equals(lightId)) {
-            lastSentColorTemp = null;
-            lastSentBrightness = null;
-
-            // update status (ONLINE, OFFLINE)
-            if (light.getState().isReachable()) {
-                updateStatus(ThingStatus.ONLINE);
-            } else {
-                updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.NONE, "Bridge reports light as not reachable");
-            }
-
-            HSBType hsbType = deCONZStateConverter.toHSBType(light.getState());
-            if (!light.getState().isOn()) {
-                hsbType = new HSBType(hsbType.getHue(), hsbType.getSaturation(), new PercentType(0));
-            }
-            updateState(new ChannelUID(getThing().getUID(), DECONZ_CHANNEL_COLOR), hsbType);
-
-            PercentType percentType = deCONZStateConverter.toColorTemperaturePercentType(light.getState());
-            updateState(new ChannelUID(getThing().getUID(), DECONZ_CHANNEL_COLORTEMP), percentType);
-
-            percentType = deCONZStateConverter.toBrightnessPercentType(light.getState());
-            if (!light.getState().isOn()) {
-                percentType = new PercentType(0);
-            }
-            updateState(new ChannelUID(getThing().getUID(), DECONZ_CHANNEL_BRIGHTNESS), percentType);
-        }
-	}
-
-	@Override
-	public void onLightRemoved(deCONZLight light) {
-        if (light.getId().equals(lightId)) {
-            updateStatus(ThingStatus.OFFLINE);
-        }
-	}
-
-	@Override
-	public void onLightAdded(deCONZLight light) {
-        if (light.getId().equals(lightId)) {
-            updateStatus(ThingStatus.ONLINE);
-            onLightStateChanged(light);
-        }
-	}
 }

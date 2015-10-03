@@ -1,4 +1,4 @@
-package org.openhab.binding.deconz.rest;
+package org.openhab.binding.deconz.json;
 
 import java.io.IOException;
 import java.io.Writer;

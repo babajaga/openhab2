@@ -4,8 +4,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 
 public class RestResult {
-
-	private final static boolean DO_PRINT = true;
 	
 	public final static int REST_OK = 0;
 	public final static int REST_CONFIGURATION_ERROR = 1;
@@ -17,7 +15,7 @@ public class RestResult {
 	
 	private int result = REST_NO_RESULT;
 	private boolean hasResult = false;
-	private JSONObject data = null;
+	private String data = null;
 	
 	public int getResult() {
 		if (hasResult()) {
@@ -38,15 +36,11 @@ public class RestResult {
 	public void setData(InputStream in) {
 		data = null;
 		if (in != null) {
-			try {
-				String s = stream2String(in);
-				data = new JSONObject(s);
-			} catch (Exception e) {
-			}
+			data = stream2String(in);
 		}
 	}
 
-	public JSONObject getData() {
+	public String getData() {
 		if (result == REST_OK) {
 			return data;
 		}
@@ -58,37 +52,11 @@ public class RestResult {
 		try {
 			ByteArrayOutputStream os = new ByteArrayOutputStream();		
 	        byte[] buffer = new byte[512];
-	        boolean first = true;
 	        for (int len; (len = in.read(buffer)) != -1;) {
-        		if (first) {
-    	        	int pos = 0;
-        			while (buffer[pos] != '{') buffer[pos++] = ' ';
-        			first = false;
-        		}
         		os.write(buffer, 0, len);
 	        }
 	        os.flush();
 	        ret = os.toString();
-			if (DO_PRINT) {
-				System.out.print("Response is " + ret.length() + " bytes. ");
-				if (ret.contains("\"lights\"")) {
-					System.out.print("Response contains lights. ");
-//					BufferedWriter writer = null;
-//					try {
-//					    writer = new BufferedWriter(new FileWriter("c:\\deconz.log"));
-//					    writer.write(ret);
-//					    writer.flush();
-//					} catch (IOException e) {
-//					}
-//					if (writer != null) {
-//					    try {
-//					        writer.close( );
-//					    } catch (IOException e) {
-//					    }
-//					}
-				}
-				System.out.println(" ");
-			}
 		} catch (Exception e) {
 		}
         return ret;

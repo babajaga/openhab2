@@ -1,4 +1,4 @@
-package org.openhab.binding.deconz.rest;
+package org.openhab.binding.deconz.json;
 
 /**
  * The JSONException is thrown by the JSON.org classes when things are amiss.

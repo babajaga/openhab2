@@ -14,12 +14,13 @@ import org.eclipse.smarthome.core.thing.ThingTypeUID;
 import org.eclipse.smarthome.core.thing.ThingUID;
 import org.openhab.binding.deconz.deCONZBindingConstants;
 import org.openhab.binding.deconz.handler.deCONZBridgeHandler;
-import org.openhab.binding.deconz.handler.deCONZLight;
+import org.openhab.binding.deconz.handler.deCONZDevice;
 import org.openhab.binding.deconz.handler.deCONZLightHandler;
-import org.openhab.binding.deconz.handler.deCONZLightStatusListener;
-import org.openhab.binding.deconz.handler.deCONZSensor;
+import org.openhab.binding.deconz.handler.deCONZLightState;
 import org.openhab.binding.deconz.handler.deCONZSensorHandler;
-import org.openhab.binding.deconz.handler.deCONZSensorStatusListener;
+import org.openhab.binding.deconz.handler.deCONZSensorState;
+import org.openhab.binding.deconz.handler.deCONZTouchlinkHandler;
+import org.openhab.binding.deconz.handler.deCONZTouchlinkState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,18 +28,17 @@ import com.google.common.collect.Sets;
 
 /**
  * The {@link deCONZDiscoveryService} tracks for devices which are connected
- * to a paired bridge. The default search time for is 60 seconds.
+ * to a paired bridge. The default search time is 60 seconds.
  *
  * @author Mike Ludwig - Initial contribution
  */
-public class deCONZDiscoveryService extends AbstractDiscoveryService implements deCONZLightStatusListener,
-	deCONZSensorStatusListener {
+public class deCONZDiscoveryService extends AbstractDiscoveryService {
 
     private final Logger logger = LoggerFactory.getLogger(deCONZDiscoveryService.class);
 
     private final static int SEARCH_TIME = 60;
 
-    private deCONZBridgeHandler bridgeHandler;
+    private deCONZBridgeHandler bridgeHandler = null;
 
     public deCONZDiscoveryService(deCONZBridgeHandler handler) {
         super(SEARCH_TIME);
@@ -46,34 +46,69 @@ public class deCONZDiscoveryService extends AbstractDiscoveryService implements 
     }
 
     public void activate() {
-    	bridgeHandler.registerLightStatusListener(this);
-    	bridgeHandler.registerSensorStatusListener(this);
     }
 
+	public void deviceRemoved(deCONZDevice device) {
+		ThingUID thingUID = getThingUID(device);
+		if (thingUID != null) {
+			thingRemoved(thingUID);
+		}
+	}
+
+	public void deviceAdded(deCONZDevice device) {
+		if (device != null) {
+			ThingUID thingUID = getThingUID(device);
+			if (thingUID != null) {
+	            ThingUID bridgeUID = bridgeHandler.getThing().getUID();
+	            Map<String, Object> properties = new HashMap<>();
+	            if (device.getState() instanceof deCONZLightState) {
+	            	properties.put(deCONZBindingConstants.DECONZ_LIGHT_ID, device.getInternalId());
+	            } else if (device.getState() instanceof deCONZSensorState) {
+	                properties.put(deCONZBindingConstants.DECONZ_SENSOR_ID, device.getInternalId());
+	            } else if (device.getState() instanceof deCONZTouchlinkState) {
+	                properties.put(deCONZBindingConstants.DECONZ_TOUCHLINK_ID, device.getInternalId());
+	                if (((deCONZTouchlinkState)device.getState()).isFactoryNew()) {
+	                	properties.put(deCONZBindingConstants.DECONZ_FACTORYNEW, "Yes");
+	                } else {
+	                	properties.put(deCONZBindingConstants.DECONZ_FACTORYNEW, "No");
+	                }
+	            } else {
+	            	return;
+	            }
+	            properties.put(deCONZBindingConstants.DECONZ_UNIQUEID, device.getUniqueId());
+	            properties.put(deCONZBindingConstants.DECONZ_MANUFACTURER, device.getManufacturer());
+	            properties.put(deCONZBindingConstants.DECONZ_MODEL, device.getModelID());
+	            properties.put(Thing.PROPERTY_FIRMWARE_VERSION, device.getSoftwareVersion());
+	            properties.put(Thing.PROPERTY_SERIAL_NUMBER, device.getUniqueId());
+	            properties.put(Thing.PROPERTY_VENDOR, device.getManufacturer());
+	            properties.put(Thing.PROPERTY_MODEL_ID, device.getModelID());
+	            DiscoveryResult discoveryResult = DiscoveryResultBuilder.create(thingUID).withProperties(properties)
+	                    .withBridge(bridgeUID).withLabel(device.getName()).build();
+	            thingDiscovered(discoveryResult);
+	        } else {
+	            logger.debug("discovered unsupported device of type '{}' with id {}",
+	            		device.getModelID(), device.getInternalId());
+	        }
+		}
+	}
+    
     @Override
     public void deactivate() {
         removeOlderResults(new Date().getTime());
-        bridgeHandler.unregisterSensorStatusListener(this);
-        bridgeHandler.unregisterLightStatusListener(this);
     }
 
     @Override
     public Set<ThingTypeUID> getSupportedThingTypes() {
-        return Sets.union(deCONZLightHandler.SUPPORTED_THING_TYPES, deCONZSensorHandler.SUPPORTED_THING_TYPES);
+        return Sets.union(Sets.union(deCONZLightHandler.SUPPORTED_THING_TYPES, deCONZSensorHandler.SUPPORTED_THING_TYPES), 
+        		deCONZTouchlinkHandler.SUPPORTED_THING_TYPES);
     }
 
     @Override
     public void startScan() {
-        List<deCONZLight> lights = bridgeHandler.getAllKnownLights();
-        if (lights != null) {
-            for (deCONZLight l : lights) {
-                onLightAddedInternal(l);
-            }
-        }
-        List<deCONZSensor> sensors = bridgeHandler.getAllKnownSensors();
-        if (sensors != null) {
-            for (deCONZSensor s : sensors) {
-                onSensorAddedInternal(s);
+        List<deCONZDevice> devices = bridgeHandler.getAllKnownDevices();
+        if (devices != null) {
+            for (deCONZDevice d : devices) {
+            	deviceAdded(d);
             }
         }
         // search for unpaired devices
@@ -86,103 +121,14 @@ public class deCONZDiscoveryService extends AbstractDiscoveryService implements 
         removeOlderResults(getTimestampOfLastScan());
     }
 
-    private void onLightAddedInternal(deCONZLight light) {
-        ThingUID thingUID = getThingUID(light);
-        if (thingUID != null) {
-            ThingUID bridgeUID = bridgeHandler.getThing().getUID();
-            Map<String, Object> properties = new HashMap<>(1);
-            properties.put(deCONZBindingConstants.DECONZ_LIGHT_ID, light.getId());
-            properties.put(deCONZBindingConstants.DECONZ_UNIQUEID, light.getUniqueId());
-            properties.put(deCONZBindingConstants.DECONZ_MANUFACTURER, light.getManufacturer());
-            properties.put(deCONZBindingConstants.DECONZ_MODEL, light.getModelID());
-            properties.put(Thing.PROPERTY_FIRMWARE_VERSION, light.getSoftwareVersion());
-            properties.put(Thing.PROPERTY_SERIAL_NUMBER, light.getUniqueId());
-            properties.put(Thing.PROPERTY_VENDOR, light.getManufacturer());
-            properties.put(Thing.PROPERTY_MODEL_ID, light.getModelID());
-            DiscoveryResult discoveryResult = DiscoveryResultBuilder.create(thingUID).withProperties(properties)
-                    .withBridge(bridgeUID).withLabel(light.getName()).build();
-            thingDiscovered(discoveryResult);
-        } else {
-            logger.debug("discovered unsupported light of type '{}' with id {}", light.getModelID(), light.getId());
-        }
-    }
-
-    private void onSensorAddedInternal(deCONZSensor sensor) {
-        ThingUID thingUID = getThingUID(sensor);
-        if (thingUID != null) {
-            ThingUID bridgeUID = bridgeHandler.getThing().getUID();
-            Map<String, Object> properties = new HashMap<>(1);
-            properties.put(deCONZBindingConstants.DECONZ_SENSOR_ID, sensor.getId());
-            properties.put(deCONZBindingConstants.DECONZ_UNIQUEID, sensor.getUniqueId());
-            properties.put(deCONZBindingConstants.DECONZ_MANUFACTURER, sensor.getManufacturer());
-            properties.put(deCONZBindingConstants.DECONZ_MODEL, sensor.getModelID());
-            properties.put(Thing.PROPERTY_FIRMWARE_VERSION, sensor.getSoftwareVersion());
-            properties.put(Thing.PROPERTY_SERIAL_NUMBER, sensor.getUniqueId());
-            properties.put(Thing.PROPERTY_VENDOR, sensor.getManufacturer());
-            properties.put(Thing.PROPERTY_MODEL_ID, sensor.getModelID());
-            DiscoveryResult discoveryResult = DiscoveryResultBuilder.create(thingUID).withProperties(properties)
-                    .withBridge(bridgeUID).withLabel(sensor.getName()).build();
-            thingDiscovered(discoveryResult);
-        } else {
-            logger.debug("discovered unsupported sensor of type '{}' with id {}", sensor.getModelID(), sensor.getId());
-        }
-    }
-
-    private ThingUID getThingUID(deCONZLight light) {
+    private ThingUID getThingUID(deCONZDevice device) {
         ThingUID bridgeUID = bridgeHandler.getThing().getUID();
-        ThingTypeUID thingTypeUID = new ThingTypeUID(deCONZBindingConstants.BINDING_ID, light.getThingType());
+        ThingTypeUID thingTypeUID = new ThingTypeUID(deCONZBindingConstants.BINDING_ID, device.getThingType());
         if (getSupportedThingTypes().contains(thingTypeUID)) {
-            String thingLightId = light.getId();
-            ThingUID thingUID = new ThingUID(thingTypeUID, bridgeUID, thingLightId);
+            ThingUID thingUID = new ThingUID(thingTypeUID, bridgeUID, device.getInternalId());
             return thingUID;
         } else {
             return null;
         }
     }
-
-    private ThingUID getThingUID(deCONZSensor sensor) {
-        ThingUID bridgeUID = bridgeHandler.getThing().getUID();
-        ThingTypeUID thingTypeUID = new ThingTypeUID(deCONZBindingConstants.BINDING_ID, sensor.getThingType());
-        if (getSupportedThingTypes().contains(thingTypeUID)) {
-            String thingSensorId = sensor.getId();
-            ThingUID thingUID = new ThingUID(thingTypeUID, bridgeUID, thingSensorId);
-            return thingUID;
-        } else {
-            return null;
-        }
-    }
-    
-	@Override
-	public void onLightStateChanged(deCONZLight light) {
-	}
-
-	@Override
-	public void onLightRemoved(deCONZLight light) {
-        ThingUID thingUID = getThingUID(light);
-        if (thingUID != null) {
-            thingRemoved(thingUID);
-        }
-	}
-
-	@Override
-	public void onLightAdded(deCONZLight light) {
-        onLightAddedInternal(light);
-	}
-
-	@Override
-	public void onSensorStateChanged(deCONZSensor sensor) {
-	}
-
-	@Override
-	public void onSensorRemoved(deCONZSensor sensor) {
-        ThingUID thingUID = getThingUID(sensor);
-        if (thingUID != null) {
-            thingRemoved(thingUID);
-        }
-	}
-
-	@Override
-	public void onSensorAdded(deCONZSensor sensor) {
-        onSensorAddedInternal(sensor);
-	}
 }
