@@ -36,9 +36,7 @@ public class deCONZStateConverter {
         int hue = (int) Math.round(hsbType.getHue().doubleValue() * HUE_FACTOR);
         int saturation = (int) Math.round(hsbType.getSaturation().doubleValue() * SATURATION_FACTOR);
         int brightness = (int) Math.round(hsbType.getBrightness().doubleValue() * BRIGHTNESS_FACTOR);
-
-        deCONZLightState update = new deCONZLightState(true, false, 0, 0, 0, 0);
-        update.assign(state);
+        deCONZLightState update = new deCONZLightState(state);
         update.setHue(hue);
         update.setSaturation(saturation);
         if (brightness > 0) {
@@ -55,8 +53,7 @@ public class deCONZStateConverter {
      * @return light state containing the 'on' value
      */
     public static deCONZDeviceState toOnOffLightState(OnOffType onOffType, deCONZLightState state) {
-        deCONZLightState update = new deCONZLightState(true, false, 0, 0, 0, 0);
-        update.assign(state);
+        deCONZLightState update = new deCONZLightState(state);
         update.setOn(OnOffType.ON.equals(onOffType));
         return update;
     }
@@ -69,10 +66,8 @@ public class deCONZStateConverter {
      * @return light state containing the brightness and the 'on' value
      */
     public static deCONZDeviceState toBrightnessLightState(PercentType percentType, deCONZLightState state) {
-        boolean on = percentType.equals(PercentType.ZERO) ? false : true;
-        deCONZLightState update = new deCONZLightState(true, false, 0, 0, 0, 0);
-        update.assign(state);
-        update.setOn(on);
+        deCONZLightState update = new deCONZLightState(state);
+        update.setOn(percentType.equals(PercentType.ZERO) ? false : true);
         int brightness = (int) Math.round(percentType.floatValue() * BRIGHTNESS_FACTOR);
         if (brightness > 0) {
             update.setBrightness(brightness);
@@ -108,8 +103,7 @@ public class deCONZStateConverter {
     public static deCONZDeviceState toColorTemperatureLightState(PercentType percentType, deCONZLightState state) {
         int colorTemperature = MIN_COLOR_TEMPERATURE
                 + Math.round((COLOR_TEMPERATURE_RANGE * percentType.floatValue()) / 100);
-        deCONZLightState update = new deCONZLightState(true, false, 0, 0, 0, 0);
-        update.assign(state);
+        deCONZLightState update = new deCONZLightState(state);
         update.setColorTemperature(colorTemperature);
         return update;
     }
@@ -176,16 +170,12 @@ public class deCONZStateConverter {
      */
     public static HSBType toHSBType(deCONZLightState lightState) {
         int hue = lightState.getHue();
-
         int saturationInPercent = (int) (lightState.getSaturation() / SATURATION_FACTOR);
         int brightnessInPercent = (int) (lightState.getBrightness() / BRIGHTNESS_FACTOR);
-
         saturationInPercent = restrictToBounds(saturationInPercent);
         brightnessInPercent = restrictToBounds(brightnessInPercent);
-
         HSBType hsbType = new HSBType(new DecimalType(hue / HUE_FACTOR), new PercentType(saturationInPercent),
                 new PercentType(brightnessInPercent));
-
         return hsbType;
     }
 
@@ -206,8 +196,7 @@ public class deCONZStateConverter {
      * @return light state containing the 'on' value
      */
     public static deCONZSensorState toOnOffSensorState(OnOffType onOffType, deCONZSensorState state) {
-        deCONZSensorState update = new deCONZSensorState(true, false);
-        update.assign(state);
+        deCONZSensorState update = new deCONZSensorState(state);
         update.setOn(OnOffType.ON.equals(onOffType));
         return update;
     }
@@ -237,13 +226,13 @@ public class deCONZStateConverter {
      * @return sensor state containing the percentage and the 'on' value
      */
     public static deCONZSensorState toPercentageSensorState(PercentType percentType, deCONZSensorState state) {
-        boolean on = percentType.equals(PercentType.ZERO) ? false : true;
-        final deCONZSensorState update = new deCONZSensorState(true, false);
-        update.assign(state);
-        update.setOn(on);
+        deCONZSensorState update = new deCONZSensorState(state);
+        update.setOn(percentType.equals(PercentType.ZERO) ? false : true);
         int value = (int) Math.round(percentType.floatValue() * PERCENTAGE_FACTOR);
         if (value > 0) {
             update.setPercentage(value);
+        } else {
+            update.setPercentage(0);
         }
         return update;
     }

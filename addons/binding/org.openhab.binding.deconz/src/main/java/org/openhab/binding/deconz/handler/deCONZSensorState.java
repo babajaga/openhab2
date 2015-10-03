@@ -10,6 +10,10 @@ public class deCONZSensorState extends deCONZDeviceState {
 		setReachable(online);
 	}
 
+	public deCONZSensorState(deCONZDeviceState other) {
+		super(other);
+	}
+	
 	public boolean isOn() {
 		return on;
 	}

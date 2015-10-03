@@ -17,6 +17,10 @@ public class deCONZLightState extends deCONZDeviceState {
 		colorTemperature = ct;
 	}
 
+	public deCONZLightState(deCONZDeviceState other) {
+		super(other);
+	}
+	
 	public void setColorTemperature(int colorTemperature) {
 		this.colorTemperature = colorTemperature;
 	}

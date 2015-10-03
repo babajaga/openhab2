@@ -1,5 +1,7 @@
 package org.openhab.binding.deconz.rest.bridge;
 
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.Lock;
@@ -8,6 +10,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.apache.commons.codec.binary.Base64;
 import org.openhab.binding.deconz.handler.deCONZBridge;
 import org.openhab.binding.deconz.handler.deCONZDevice;
+import org.openhab.binding.deconz.handler.deCONZDeviceState;
 import org.openhab.binding.deconz.handler.deCONZGroup;
 import org.openhab.binding.deconz.handler.deCONZLightState;
 import org.openhab.binding.deconz.handler.deCONZSensorState;
@@ -22,11 +25,46 @@ import org.openhab.binding.deconz.rest.RestJson;
 
 public class deCONZRestBridgeService extends deCONZRestWorker {
 
-    private Logger logger = LoggerFactory.getLogger(deCONZRestBridgeService.class);
+	class UpdateItem {
+		
+		private String id = null;
+		private deCONZDeviceState state = null;
+		private int timeout = 0;
+		
+		UpdateItem(String id, deCONZDeviceState state, int timeout) { 
+			this.id = id;
+			this.state = state;
+			this.timeout = timeout;
+		}
+		
+		public void tick() {  
+			if (timeout > 0) {
+				timeout--;
+			}
+		}
+		
+		public boolean isTimeout() {
+			if (timeout <= 0) {
+				return true;
+			}
+			return false;
+		}
+		
+		public String getId() {
+			return id;
+		}
+
+		public deCONZDeviceState getState() {
+			return state;
+		}
+	};
 	
-	private Boolean authenticated = false;
+    private Logger logger = LoggerFactory.getLogger(deCONZRestBridgeService.class);
+    
+    private Boolean authenticated = false;
 	private String apiKey = null;
 	private deCONZRestReader notify = null;
+	private List<UpdateItem> updateItems = new ArrayList<UpdateItem>();
 	
 	public Boolean isAuthenticated() {
 		return authenticated;
@@ -41,6 +79,10 @@ public class deCONZRestBridgeService extends deCONZRestWorker {
 		notify = new deCONZRestReader(bridge, device);
 	}
 
+	public void addTimout(String id, deCONZDeviceState state, int timeout) {
+		updateItems.add(new UpdateItem(id, state, timeout));
+	}
+	
 	@Override
 	protected void updateStatus(int status, String message) {
 		if ((notify != null) && (notify.getBridgeReader() != null)) {
@@ -248,6 +290,41 @@ public class deCONZRestBridgeService extends deCONZRestWorker {
 		return ret;
 	}
 
+	@Override
+	protected void tick(int seconds) {
+		while (seconds > 0) {
+			for (UpdateItem i : updateItems) {
+				i.tick();
+			}
+			seconds--;
+		}
+		for (Iterator<UpdateItem> i = updateItems.iterator(); i.hasNext(); ) {
+			UpdateItem t = i.next();
+			if (t.isTimeout()) {
+				if ((notify != null) && (notify.getBridgeReader() != null)) {
+					notify.getBridgeReader().onTimeout(t.getId(), t.getState());
+				}
+				i.remove();
+			}
+        }		
+	}
+
+	@Override
+	protected void onStart() {
+		
+	}
+
+	@Override
+	protected void onStop() {
+		// if the rest service is no longer ticking us we timeout all
+		// update items as it would otherwise never happen and the updates
+		// would never come through, although with this approach the updates
+		// might arrive (far) too early.
+		while (updateItems.size() > 0) {
+			tick(1);
+		}
+	}
+	
 	public RestResult setLightState(deCONZDevice device, deCONZLightState newState) {
 		RestResult ret = checkPreRequisite(true, true, true, "Cannot set light state");
 		if (ret == null) {
@@ -307,9 +384,7 @@ public class deCONZRestBridgeService extends deCONZRestWorker {
 					logger.error("Reset command for device {} at {} failed.", device.getUniqueId(), baseURL);
 				}
 			} else {
-				logger.error("Cannot execute touchlink commands for device {} at {} - no commands given.", 
-						device.getUniqueId(), baseURL);
-				// We still return ok as to reset the command states off the devices
+				// We havn't don anything but this is surely okay, isn't it?
 				ret = new RestResult();
 				ret.setResult(RestResult.REST_OK);
 			}

@@ -132,7 +132,7 @@ public class deCONZBridgeHandler extends BaseThingHandler implements deCONZRestR
 		        result = bridge.setSensorState(device, (deCONZSensorState)newState);
 			} else if (newState instanceof deCONZTouchlinkState) {
 		        result = bridge.setTouchlinkState(device, (deCONZTouchlinkState)newState);
-		        // We do not really care for the result here - we want to re-publish the old state anyway
+		        // We do not care for the result here
 		        publish = true;
 			}
 	        if (result != null) {
@@ -322,6 +322,20 @@ public class deCONZBridgeHandler extends BaseThingHandler implements deCONZRestR
         }
 	}
 
+	public void addTimeout(String id, deCONZDeviceState state, int timeout) {
+		if (bridge != null) {
+			bridge.addTimout(id, state, timeout);
+		}
+	}
+	
+	@Override
+	public void onTimeout(String id, deCONZDeviceState state) {
+		deCONZDevice d = devices.get(id);
+		if (d != null) {
+			updateDeviceState(d, state);
+		}
+	}
+	
 	@Override
 	public void onDeviceInfo(deCONZDevice device) {
 		// we get a notification for each device which is know to the gateway - update our internal list
@@ -336,7 +350,6 @@ public class deCONZBridgeHandler extends BaseThingHandler implements deCONZRestR
                 dev.setState(device.getState());
                 if (!dev.isState(device.getState())) {
                 	logger.error("state update did not work!");
-                    dev.setState(device.getState());
                 }
                 // inform the listeners
                 for (deCONZDeviceStatusListener listener : statusListeners) {

@@ -1,5 +1,6 @@
 package org.openhab.binding.deconz.rest.bridge;
 
+import java.util.Date;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -32,6 +33,7 @@ public abstract class deCONZRestWorker extends RestHandler {
     private int savedStateCount = 0;
     private boolean restart = false;
     private boolean touchlink = false;
+    private Date lastRun = null;
     
     abstract protected RestResult authenticateBasic(String username, String password);
     abstract protected RestResult authenticateUnlocked();
@@ -41,6 +43,9 @@ public abstract class deCONZRestWorker extends RestHandler {
     abstract protected boolean getTouchlinkStatus();
     abstract protected void endTouchlink();
     abstract protected void updateStatus(int status, String message);
+    abstract protected void onStart();
+    abstract protected void tick(int seconds);
+    abstract protected void onStop();
     abstract public String getBaseURL();
     abstract public String getApiKey();
     abstract public void setApiKey(String key);
@@ -73,6 +78,8 @@ public abstract class deCONZRestWorker extends RestHandler {
 
 	        restart = false;
 	        job = scheduler.scheduleAtFixedRate(runnable, 1, 1, TimeUnit.SECONDS);
+	        onStart();
+	        lastRun = new Date();
     	}
     }
     
@@ -80,6 +87,8 @@ public abstract class deCONZRestWorker extends RestHandler {
     	if (job != null) {
     		job.cancel(true);
     		job = null;
+	        onStop();
+	        lastRun = null;
     	}
     }
     
@@ -92,7 +101,9 @@ public abstract class deCONZRestWorker extends RestHandler {
     }
     
 	private void doWork() {
-		// apply requested state chnages
+		// issue a tick
+		doTick();
+		// apply requested state changes
 		switchState();
     	
     	// Wait for the next state change
@@ -134,6 +145,17 @@ public abstract class deCONZRestWorker extends RestHandler {
 			state = STATE_INIT;
 			break;
 		}
+	}
+	
+	private void doTick() {
+		Date now = new Date();
+		if (lastRun != null) {
+			Long diff = (now.getTime() - lastRun.getTime()) / 1000;
+			if (diff > 0) {
+				tick(diff.intValue());
+			}
+		}
+		lastRun = now;
 	}
 	
 	private int doInit() {

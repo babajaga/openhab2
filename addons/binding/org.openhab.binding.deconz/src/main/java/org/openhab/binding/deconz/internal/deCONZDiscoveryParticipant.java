@@ -66,7 +66,14 @@ public class deCONZDiscoveryParticipant implements UpnpDiscoveryParticipant {
 	                    	}
 	                    }
                 	}
-                   	System.out.println("UPNP result '" + modelName + "' ignored");
+                	URL url = details.getBaseURL();
+                	if (url != null) {
+                       	System.out.println("UPNP discovered device at " + 
+                       			url.getProtocol() + "://" + url.getPath() + " with serial number " + 
+                       			details.getSerialNumber());
+                	} else {
+                		System.out.println("UPNP result '" + modelName + "' ignored - no URL");
+                	}
                 }
             }
         }

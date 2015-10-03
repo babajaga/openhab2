@@ -68,8 +68,6 @@ public abstract class deCONZDeviceHandler extends BaseThingHandler implements de
         deCONZDeviceState newState = handleCommandForDevice(channelUID, command, device.getState());
         if (newState != null) {
             bridgeHandler.updateDeviceState(device, newState);
-        } else {
-            logger.warn("Command send to an unknown channel id: " + channelUID);
         }
 	}
 	
@@ -103,6 +101,10 @@ public abstract class deCONZDeviceHandler extends BaseThingHandler implements de
             deviceId = id;
         }
 	}
+
+	protected String getDeviceId() {
+        return deviceId;
+	}
 	
     protected deCONZDevice getDevice() {
         getBridgeHandler();
@@ -119,7 +121,15 @@ public abstract class deCONZDeviceHandler extends BaseThingHandler implements de
         return false;
     }
     
-    @SuppressWarnings("deprecation")
+    protected void postDelayedStateUpdate(deCONZDeviceState state, int timeout) {
+    	if ((state != null) && (timeout > 0)) {
+            getBridgeHandler();
+            if (bridgeHandler != null) {
+                bridgeHandler.addTimeout(deviceId, state, timeout);
+            }
+    	}
+    }
+    
 	@Override
     public void onDeviceStateChanged(deCONZDevice device) {
         if (isDevice(device)) {

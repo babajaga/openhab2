@@ -46,6 +46,9 @@ public class deCONZTouchlinkHandler extends deCONZDeviceHandler {
                 	if (!((deCONZTouchlinkState)currentState).isIdentify() && !((deCONZTouchlinkState)currentState).isReset() &&
                 			(((OnOffType)command).compareTo(OnOffType.ON) == 0)) {
                 		newState = new deCONZTouchlinkState(true, false, ((deCONZTouchlinkState)currentState).isFactoryNew());
+                		// reset the state after two seconds
+                		postDelayedStateUpdate(new deCONZTouchlinkState(false, false, 
+                				((deCONZTouchlinkState)currentState).isFactoryNew()), 2);
                 	} // else ignore the command
                 }
                 break;
@@ -54,8 +57,14 @@ public class deCONZTouchlinkHandler extends deCONZDeviceHandler {
                 	if (!((deCONZTouchlinkState)currentState).isIdentify() && !((deCONZTouchlinkState)currentState).isReset() &&
                 			(((OnOffType)command).compareTo(OnOffType.ON) == 0)) {
                 		newState = new deCONZTouchlinkState(false, true, ((deCONZTouchlinkState)currentState).isFactoryNew());
+                		// reset the state after two seconds
+                		postDelayedStateUpdate(new deCONZTouchlinkState(false, false, 
+                				((deCONZTouchlinkState)currentState).isFactoryNew()), 2);
                 	} // else ignore the command
                 }
+                break;
+            default:
+                logger.warn("Command send to an unknown channel id: " + channelUID);
                 break;
 	        }
     	}

@@ -28,7 +28,6 @@ public class deCONZEventPublisher {
 		if (eventPublisher != null) {
 			List<Channel> channels = thing.getChannels();
 			for (Channel c : channels) {
-				@SuppressWarnings("deprecation")
 				Set<Item> items = c.getLinkedItems();
 				for (Item i : items) {
 					if (i instanceof GenericItem) {

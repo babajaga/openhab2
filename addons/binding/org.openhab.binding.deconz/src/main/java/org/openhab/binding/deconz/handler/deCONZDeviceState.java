@@ -3,7 +3,14 @@ package org.openhab.binding.deconz.handler;
 public abstract class deCONZDeviceState {
 
 	private boolean reachable = false;
-		
+
+	public deCONZDeviceState() {
+	}
+
+	public deCONZDeviceState(deCONZDeviceState other) {
+		assign(other);
+	}
+	
 	public void setReachable(boolean online) {
 		reachable = online;
 	}

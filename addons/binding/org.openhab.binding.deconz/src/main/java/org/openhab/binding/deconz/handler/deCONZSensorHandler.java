@@ -24,6 +24,8 @@ public class deCONZSensorHandler extends deCONZDeviceHandler {
 
 	public final static Set<ThingTypeUID> SUPPORTED_THING_TYPES = Sets.newHashSet(THING_TYPE_ONOFFSWITCH, 
     		THING_TYPE_DIMSWITCH);
+    private final static boolean COMMAND_DEBUG = false;
+    private final static boolean UPDATE_DEBUG = false;
 
 	private int lastPercentage = -1;
 	
@@ -49,25 +51,37 @@ public class deCONZSensorHandler extends deCONZDeviceHandler {
             case DECONZ_CHANNEL_ONOFF:
                 if (command instanceof OnOffType) {
                     newState = deCONZStateConverter.toOnOffSensorState((OnOffType) command, (deCONZSensorState)currentState);
+	        		cmd_debug("ON/OFF");
                 }
                 break;
             case DECONZ_CHANNEL_BRIGHTNESS:
                 if (command instanceof PercentType) {
                     newState = deCONZStateConverter.toPercentageSensorState((PercentType) command, (deCONZSensorState)currentState);
+	        		cmd_debug("BRI percent");
                 } else if (command instanceof OnOffType) {
                     newState = deCONZStateConverter.toOnOffSensorState((OnOffType) command, (deCONZSensorState)currentState);
-                	if ((((deCONZSensorState)currentState).getPercentage() > 0) && OnOffType.OFF.equals((OnOffType)command)) {
-                		// switch off - set percentage to 0
-                		lastPercentage = ((deCONZSensorState)currentState).getPercentage();
-                		((deCONZSensorState)newState).setPercentage(0);
-                	} else if ((((deCONZSensorState)currentState).getPercentage() == 0) && OnOffType.ON.equals((OnOffType)command)) {
-                		// switch onn - set percentage to last known value
-                		((deCONZSensorState)newState).setPercentage(lastPercentage);
-                	}
+	        		cmd_debug("BRI on/off");
                 } else if (command instanceof IncreaseDecreaseType) {
                     newState = convertUpDownChangeToStateUpdate((IncreaseDecreaseType) command, (deCONZSensorState)currentState);
+	        		cmd_debug("BRI increase/decrease");
                 }
                 break;
+            default:
+                logger.warn("Command send to an unknown channel id: " + channelUID);
+                break;
+	        }
+	        
+	        if (newState != null) {
+            	if (((deCONZSensorState)currentState).isOn() && !((deCONZSensorState)newState).isOn()) {
+            		// switch off - set percentage to 0
+            		lastPercentage = ((deCONZSensorState)currentState).getPercentage();
+            		((deCONZSensorState)newState).setPercentage(0);
+	        		cmd_debug("save last PRO");
+            	} else if (!((deCONZSensorState)currentState).isOn() && ((deCONZSensorState)newState).isOn()) {
+            		// switch on - set percentage to last known value
+            		((deCONZSensorState)newState).setPercentage(lastPercentage);
+	        		cmd_debug("restore last PRO");
+            	}
 	        }
     	}
         return newState;
@@ -80,23 +94,43 @@ public class deCONZSensorHandler extends deCONZDeviceHandler {
 			switch (channelUID.getId()) {
             case DECONZ_CHANNEL_BRIGHTNESS:
 	 	       	if (!state.isOn()) {
+		        	upd_debug("update PRO - off");
 	        		updateState(channelUID, new PercentType(0));
 	        	} else {
+		        	upd_debug("update PRO - on");
 	        		updateState(channelUID, deCONZStateConverter.toBrightnessPercentType(state));
 	 	       	}
             	break;
             case DECONZ_CHANNEL_ONOFF:
-		        updateState(channelUID, state.isOn() ? OnOffType.ON : OnOffType.OFF);
+	 	       	if (!state.isOn()) {
+		        	upd_debug("update ON/OFF - off");
+	        		updateState(channelUID, OnOffType.OFF);
+	        	} else {
+		        	upd_debug("update ON/OFF - on");
+	        		updateState(channelUID, OnOffType.ON);
+	 	       	}
             	break;
 			}
         }
 	}
     
     private deCONZDeviceState convertUpDownChangeToStateUpdate(IncreaseDecreaseType command, deCONZSensorState state) {
-        int percentage = deCONZStateConverter.toAdjustedPercentage(command, state.getPercentage());
-        deCONZSensorState update = new deCONZSensorState(true, false);
-        update.assign(state);
+    	int percentage = deCONZStateConverter.toAdjustedPercentage(command, state.getPercentage());
+        deCONZSensorState update = new deCONZSensorState(state);
         update.setPercentage(percentage);
+        update.setOn(percentage <= 0 ? false : true); 
         return update;
+    }
+
+    private void cmd_debug(String msg) {
+    	if (COMMAND_DEBUG) {
+    		logger.debug(msg);
+    	}
+    }
+
+    private void upd_debug(String msg) {
+    	if (UPDATE_DEBUG) {
+    		logger.debug(msg);
+    	}
     }
 }
