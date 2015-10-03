@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<thing:thing-descriptions bindingId="deconz"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns:thing="http://eclipse.org/smarthome/schemas/thing-description/v1.0.0"
+        xsi:schemaLocation="http://eclipse.org/smarthome/schemas/thing-description/v1.0.0 http://eclipse.org/smarthome/schemas/thing-description-1.0.0.xsd">
+
+    <thing-type id="ZigBeeTouchlinkDevice">
+        <supported-bridge-type-refs>
+            <bridge-type-ref id="deCONZBridge" />
+        </supported-bridge-type-refs>
+        
+        <label>Unknown ZigBee Device</label>
+        <description>A unknown ZigBee device is a device which has been found e.g. by touchlinking but not yet classified as e.g. a switch or a light.</description>
+
+        <channels>
+            <channel id="deconzIdentify" typeId="deconzIdentify" />
+            <channel id="deconzReset" typeId="deconzReset" />
+        </channels>
+
+  	    <config-description>
+			<parameter name="UniqueId" type="text" readOnly="true">
+ 				<label>Unique device id</label>
+ 				<description>The unique id of the device which should be visible at the device as well. This value is the only information available from a touchlinked device.</description>
+ 				<required>true</required>
+ 			</parameter>
+			<parameter name="FactoryNew" type="text" readOnly="true">
+ 				<label>Factory new</label>
+ 				<description>If the device is factory new it can join available and open ZigBee networks. If not, it is already bound to a network and will not join any other network until it is reset to factory new. You can issue a reset to the device using the reset channel.</description>
+ 				<required>true</required>
+ 			</parameter>
+	    </config-description>        
+    </thing-type>
+</thing:thing-descriptions>
